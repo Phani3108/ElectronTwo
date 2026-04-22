@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ElectronTwo</title>
+  <style>
+    :root {
+      --bg: rgba(18, 18, 22, 0.92);
+      --fg: #e8e8ec;
+      --muted: #8a8a95;
+      --accent: #7aa2ff;
+      --ok: #6ecf7a;
+      --warn: #e0b84a;
+      --err: #e57373;
+      --border: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      background: transparent;
+      color: var(--fg);
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+    .shell {
+      height: 100vh;
+      background: var(--bg);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.ok { background: var(--ok); }
+    .dot.warn { background: var(--warn); }
+    .dot.err { background: var(--err); }
+    .state {
+      font-variant-numeric: tabular-nums;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .spacer { flex: 1; }
+    button {
+      -webkit-app-region: no-drag;
+      background: rgba(255,255,255,0.06);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(255,255,255,0.1); }
+    button.primary { background: var(--accent); color: #0a0a12; border-color: var(--accent); }
+    main {
+      flex: 1; overflow: hidden;
+      display: flex; flex-direction: column;
+      padding: 12px 14px;
+      gap: 10px;
+    }
+    .transcript {
+      -webkit-app-region: no-drag;
+      flex: 1; overflow: auto;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .transcript .interim { color: var(--muted); }
+    .log {
+      max-height: 120px; overflow: auto;
+      font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .log .err { color: var(--err); }
+    .log .state-evt { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <span class="dot" id="health-dot"></span>
+      <span class="state" id="state-label">idle</span>
+      <span class="spacer"></span>
+      <button id="btn-start" class="primary">Start</button>
+      <button id="btn-stop">Stop</button>
+    </header>
+    <main>
+      <div class="transcript" id="transcript"></div>
+      <div class="log" id="log"></div>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

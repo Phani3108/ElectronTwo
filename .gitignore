@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+dist/
+out/
+*.log
+.DS_Store
+.vscode/
+userData/
+logs/
