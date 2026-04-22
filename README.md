@@ -1,102 +1,193 @@
-# ElectronTwo
+# 💻 ElectronTwo
 
-Live-call AI copilot, rebuilt from scratch. Not a feature rewrite — an architectural reset.
+**An invisible desktop copilot for live video interviews.**
+Listens to your Zoom / Meet / Teams call, drafts answers grounded in your own stories in your own voice, and stays invisible to screen share.
 
-## Intent
+> Companion to [Shadow](https://github.com/Phani3108/Shadow) — the Android earbud version for voice calls. Both share the same profile format and session history.
 
-An invisible live-call copilot that drafts in-your-voice answers grounded in your own corpus, with zero babysitting for 90 minutes.
+---
 
-## Non-goals (V1)
+## ✨ Why this exists
 
-- No framework chips / lens bar (prompt templates ≠ product)
-- No per-role "modes" (replaced by profiles)
-- No coding-screenshot solver (different product)
-- No prescribed answer structure in system prompt (few-shot does it)
-- No web/Windows (Mac-first, until the mac version is gold)
+- 🕶 **Invisible to screen share** — `setContentProtection(true)` means the window doesn't show in Zoom / Meet / Teams
+- 🎙 **Manual or auto** — classifier detects questions with confidence; hit spacebar to override
+- 📚 **Profile-as-corpus** — your stories are an atomic-story RAG index, not a prompt dump
+- ⚡ **Cached prompts** — four-tier `cache_control` prompt, ~5× faster TTFT, ~90% cheaper
+- 🗣 **Voice via examples, not rules** — few-shot samples in your real cadence replace "always use STAR" instructions
+- 🔌 **Three LLM providers** — Anthropic Claude, Azure OpenAI, Ollama (local) — swap in one click
+- 🧪 **Offline fallback** — Deepgram → local Whisper, cloud LLM → Ollama; flip a chip in the header
+- 📊 **Observable by design** — timing strip shows STT · RAG · TTFT · Total live
+- 📝 **Live notes** inject mid-call — `interviewer: Alice` becomes tier-2 context on every subsequent turn
+- 📚 **Sessions** saved across device — imports phone (Shadow) sessions into one history view
 
-## Core shifts from v1
+---
 
-1. **Audio pipeline is an explicit state machine.** One owner of truth. Every transition tears down prior resources. No scattered `let isListening`.
-2. **Intent detection is first-class.** VAD + diarization + question classifier on interim transcripts. Spacebar becomes override, not primary.
-3. **Streaming prefetch, not request/response.** RAG + LLM fire at ~70% question completion. Target TTFT <400ms from end-of-speech.
-4. **Layered cache-aware prompting.** Four tiers. Profile is a RAG corpus over atomic stories, never dumped.
-5. **Voice via examples, not rules.** 3–5 few-shot answers replace all prescribed structure.
-6. **Profile-as-corpus.** Each profile = its own RAG index + voice samples + role context. One-key swap. This is the real moat.
-
-## Architecture
-
-```
-ScreenCaptureKit / mic  → [Audio Pipeline SM] → MediaStream
-                               │
-                               ▼
-                          [STT Adapter] ──── Deepgram (primary)
-                               │                Whisper local (fallback)
-                               ▼
-                          [Event Bus] ──── emits: transcript, state, timing
-                               │
-                               ▼
-                          [Intent Classifier] (is-question · to-me · urgency)
-                               │
-                               ▼
-                          [Speculative RAG] (continuous on partial)
-                               │
-                               ▼
-                          [LLM Orchestrator] (layered prompt · cache_control)
-                               │
-                               ▼
-                          [Renderer UI] (pill + expand pane)
-```
-
-Every stage emits timing events. UI shows live health strip.
-
-## Directory layout
+## 🏗 Architecture
 
 ```
-src/
-  audio/          # audio pipeline state machine (mic → MediaStream)
-  stt/            # speech-to-text adapters (Deepgram, Whisper, browser)
-  intent/         # VAD / question classifier
-  rag/            # atomic-story indexing + retrieval
-  llm/            # providers + layered prompt assembly
-  profile/        # profile manager (corpus + voice + role)
-  bus/            # event bus
-  state/          # shared store
-  observability/  # timing + health
-  renderer/       # UI shell (pill + pane)
-main.js           # Electron shell
-preload.js        # IPC bridge
+🎤 Mic / system audio
+      │
+      ▼
+🛠 AudioPipeline (state machine)
+      │
+      ▼
+🗣 STT Adapter   ── Deepgram (primary)
+      │           └── Whisper local (fallback, @xenova/transformers)
+      ▼
+📬 EventBus ── emits: audio:state · audio:transcript · audio:timing · …
+      │
+      ▼
+🧭 IntentClassifier  (is-question · to-me · urgency)
+      │
+      ▼
+🔎 StoryRAG (top-K cosine over atomic STAR stories)
+      │
+      ▼
+🧠 LLMOrchestrator
+      │    ├── AnthropicProvider  (streaming, cache_control)
+      │    ├── AzureOpenAIProvider  (streaming SSE, Azure resource + deployment)
+      │    └── OllamaProvider  (localhost:11434)
+      ▼
+🖼 Renderer UI (pill + answer pane + notes + sessions + settings)
 ```
 
-## Gold-standard yardsticks
+Every pipeline stage emits timing events. The UI observability strip reads them live.
 
-A user should be able to:
-1. Launch and see green on mic, STT, LLM, RAG in <2s
-2. Start a call with zero configuration
-3. Get draft tokens within <400ms of question-end
-4. See *why* this answer was chosen (which story cited)
-5. Switch profile in one keystroke, mid-call
-6. Run 2 hours without touching anything
-7. Quit and find the session saved + indexed
+---
 
-If any of those isn't true, it's not gold standard.
+## 🔑 Providers
 
-## Build order
+| Role | Options |
+|---|---|
+| 🧠 **LLM** | Anthropic Claude · Azure OpenAI · Ollama (local) |
+| 🔢 **Embeddings** | OpenAI · Azure OpenAI |
+| 🗣 **STT** | Deepgram Nova-2 · local Whisper-tiny |
 
-- [x] Scaffold
-- [ ] Audio state machine + event bus (Day 1–2)
-- [ ] Deepgram STT + fallback chain (Day 2–3)
-- [ ] Intent classifier + diarization (Day 3–4)
-- [ ] Atomic-story RAG + profile manager (Day 5–6)
-- [ ] Layered prompt assembly + few-shot voice (Day 7)
-- [ ] Streaming prefetch + partial render (Day 8)
-- [ ] Pill UI + expand pane + notes (Day 9–10)
-- [ ] Multi-profile switching (Day 11)
-- [ ] Session persistence + resume (Day 12)
-- [ ] Health pre-flight + observability strip (Day 13)
-- [ ] Fallback chains + polish (Day 14–15)
+Swap any of them from the ⚙ settings modal. Each key row has inline **[Save]** and **[Test]** buttons — test pings the real service before you save.
 
-Target: ~2,500 LOC. Current v1 is 4,534.
+---
 
-## Today
+## 🚀 Install & run
 
-Day 1 scope: audio pipeline state machine with Deepgram transcription running end-to-end. No LLM yet, no RAG yet. Just prove the foundation is reliable.
+### From the .dmg
+
+```bash
+npm run dist            # → dist/ElectronTwo-0.0.1.dmg
+```
+
+Drag to Applications. First launch: right-click → **Open** once to bypass Gatekeeper (we don't notarize).
+
+### From source
+
+```bash
+npm install
+npm start
+```
+
+No env vars required — the onboarding flow walks you through key entry.
+
+---
+
+## 🧭 First-launch onboarding
+
+Three-step modal, gated by `config.onboarding_complete`:
+
+1. 🔐 **Permissions** — mic + stealth explainer
+2. 🔑 **Keys** — Anthropic / OpenAI / Deepgram; Azure fields appear when you pick it as provider
+3. 👤 **Profile** — a default profile is seeded; edit in your editor or import JSON
+
+Skip anytime; revisit via ⚙ in the header.
+
+---
+
+## 🎛 Header controls
+
+| Control | Purpose |
+|---|---|
+| 🟢 **Health dots** | mic · anthropic · openai · deepgram · ollama · azure |
+| 👤 **profile** chip | Click or `⌘⇧P` to cycle profiles mid-session |
+| 🤖 **auto / manual** | Auto drafts on high-confidence questions; manual waits for space |
+| 📡 **online / offline** | Flip provider order to Ollama-first for no-network runs |
+| 📝 **notes** | Toggle notes panel (tagged: `focus: distributed systems`) |
+| 📚 **sessions** | View + import history (desktop 💻 + phone 📱) |
+| ⚙️ **settings** | Keys + provider pickers + per-key Save/Test |
+
+---
+
+## ⌨️ Keyboard
+
+| Keys | Action |
+|---|---|
+| `⌘⇧H` | Hide / show window |
+| `⌘⇧P` | Cycle active profile |
+| `⌘,`  | Open settings |
+| `Space` | Force draft now (or cancel pending auto-draft) |
+
+---
+
+## 🗂 Profile format
+
+One folder per profile, one file per story:
+
+```
+userData/profiles/<name>/
+  identity.md         # one paragraph, first-person voice anchor
+  role.md             # who you're interviewing for today
+  voice-samples.md    # 3–5 few-shot Q&A in your real cadence
+  stories/
+    <story-id>.md     # one atomic STAR story per file
+```
+
+Round-trippable with the Shadow app via a single JSON bundle — see [SHARED/PROFILE.md](SHARED/PROFILE.md).
+
+---
+
+## 📂 Module map
+
+| Path | Purpose |
+|---|---|
+| 🎵 `src/audio/pipeline.js` | State machine: IDLE → REQUESTING_MIC → CONNECTING → STREAMING → RECONNECTING → STOPPED |
+| 🗣 `src/stt/deepgram-transport.js` | Primary STT via WebSocket |
+| 🗣 `src/stt/whisper-transport.js` | Local Whisper fallback |
+| 🗣 `src/stt/fallback-transport.js` | Try primary then secondary on connect |
+| 🧭 `src/intent/classifier.js` | Rule-based question detector, <5 ms |
+| 🧭 `src/intent/auto-draft.js` | Debounced draft trigger + spacebar override |
+| 🔎 `src/rag/story-rag.js` | Cosine similarity on atomic stories + disk cache |
+| 🧠 `src/llm/orchestrator.js` | Provider-agnostic, fallback chain, abort-safe |
+| 🧠 `src/llm/prompt-builder.js` | Four-tier layered prompt with cache_control |
+| 🧠 `src/llm/providers/` | Anthropic · Azure OpenAI · Ollama |
+| 👤 `src/profile/profile-manager.js` | Load, cache, cycle |
+| 📝 `src/notes/notes.js` | Live notes with tag parsing |
+| 📚 `src/session/session-manager.js` | Debounced JSON persistence + resume |
+| 📊 `src/observability/metrics.js` | Rolling p50s for the header strip |
+| 🖼 `src/renderer/` | UI shell |
+| 🚪 `main.js` | Electron shell + IPC (profile IO, embeddings, keys, sessions) |
+
+---
+
+## 📦 Build targets
+
+- 🍎 **macOS** (Apple Silicon) via `electron-builder` — [package.json](package.json) has the config
+- 🚫 Windows / Linux / Web — not targets for V1
+
+Universal binary when codesigned; unsigned falls back to arm64-only.
+
+---
+
+## 📖 More docs
+
+- 📘 [USER_GUIDE.md](USER_GUIDE.md) — end-user walkthrough, one page
+- 📐 [SHARED/PROFILE.md](SHARED/PROFILE.md) — canonical profile schema
+- 🗺 [PLAN.md](PLAN.md) — the 8-phase plan both products execute against
+
+---
+
+## 🔗 Companion repo
+
+- 📱 [Shadow](https://github.com/Phani3108/Shadow) — Android earbud copilot for voice calls
+
+---
+
+## 🏷 Credits
+
+Built by [Phani Marupaka](https://www.linkedin.com/in/phani-marupaka). MIT License.
