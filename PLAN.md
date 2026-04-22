@@ -229,5 +229,6 @@ Two products that share an orchestrator:
 - **Phase 1**: profile manager, atomic-story RAG, layered prompt with cache_control, streaming LLM orchestrator.
 - **Phase 2**: config store for keys, health pre-flight, intent classifier + auto-draft, live notes, session persistence, settings modal.
 - **Phase 3**: fallback chains (Deepgram→Whisper, Anthropic→Ollama), observability strip, electron-builder packaging config.
-- **Phase 4 (spike)**: ShadowTwo Android project scaffolded at `/Users/phani.m/Downloads/ShadowTwo/`. Foreground service + MediaProjection capture + OpenAI Realtime WS + earbud-path playback + bleed self-test. Ready for on-device validation.
+- **Phase 4 (spike)**: ShadowTwo Android project scaffolded. Foreground service + MediaProjection capture + OpenAI Realtime WS + earbud-path playback + bleed self-test. Ready for on-device validation.
+- **Phase 5**: Rescue mode on Android — dual-speaker STT (Deepgram × 2), conversation tracker, pause detector (1.2s), atomic-story RAG + embeddings ported from desktop, Anthropic Haiku cue generator, Android built-in TTS to earbud, floating overlay (SYSTEM_ALERT_WINDOW), mode picker + profile import. Shadow + Rescue coexist.
 - Future entries go here. Any change to scope, acceptance, or timeline gets a dated line.
