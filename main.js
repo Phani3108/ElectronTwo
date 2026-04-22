@@ -12,6 +12,7 @@
 const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { ConfigStore } = require('./src/config/config-store');
 
 try { require('dotenv').config(); } catch {}
 
@@ -19,7 +20,13 @@ process.title = 'Helper'; // stealth in Activity Monitor
 
 let mainWindow;
 let isVisible = true;
+let config; // ConfigStore, initialised after app.whenReady
 const userDataPath = () => app.getPath('userData');
+
+/** Read key from config store first, fall back to env. Renderer is the canonical source. */
+function readKey(name) {
+  return config?.get(name) || process.env[name];
+}
 
 // ─── window ────────────────────────────────────────────────────────────
 function createWindow() {
@@ -56,6 +63,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  config = new ConfigStore(userDataPath());
+
   if (process.platform === 'darwin') {
     const status = systemPreferences.getMediaAccessStatus('microphone');
     if (status !== 'granted') await systemPreferences.askForMediaAccess('microphone');
@@ -79,7 +88,7 @@ app.whenReady().then(async () => {
 });
 
 // ─── env + mic IPC ─────────────────────────────────────────────────────
-ipcMain.handle('get-env', (_e, key) => process.env[key]);
+ipcMain.handle('get-env', (_e, key) => readKey(key));
 
 ipcMain.handle('get-mic-permission', () => {
   if (process.platform === 'darwin') return systemPreferences.getMediaAccessStatus('microphone');
@@ -92,6 +101,75 @@ ipcMain.handle('request-mic-permission', async () => {
     return granted ? 'granted' : 'denied';
   }
   return 'granted';
+});
+
+// ─── config (API keys + prefs) ─────────────────────────────────────────
+ipcMain.handle('config:get-all', () => {
+  const all = config.getAll();
+  // Redact key VALUES on read — renderer only needs to know if set. Keys themselves
+  // flow through `get-env` when the renderer actually needs to make an API call.
+  const redacted = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (typeof v === 'string' && /API_KEY$/i.test(k)) redacted[k] = v ? `set:${maskKey(v)}` : '';
+    else redacted[k] = v;
+  }
+  return redacted;
+});
+
+ipcMain.handle('config:set', (_e, key, value) => {
+  if (value === null || value === undefined || value === '') config.delete(key);
+  else config.set(key, value);
+  return true;
+});
+
+function maskKey(k) {
+  if (!k) return '';
+  if (k.length <= 10) return '…';
+  return `${k.slice(0, 4)}…${k.slice(-4)}`;
+}
+
+// ─── services:probe — health pre-flight ────────────────────────────────
+ipcMain.handle('services:probe', async () => {
+  const results = { mic: 'unknown', anthropic: 'unknown', openai: 'unknown', deepgram: 'unknown' };
+
+  // Mic (macOS only reports meaningful state)
+  if (process.platform === 'darwin') {
+    const st = systemPreferences.getMediaAccessStatus('microphone');
+    results.mic = st === 'granted' ? 'ok' : st;
+  } else {
+    results.mic = 'ok';
+  }
+
+  const timeout = (ms) => AbortSignal.timeout(ms);
+  const anth = readKey('ANTHROPIC_API_KEY');
+  const oai = readKey('OPENAI_API_KEY');
+  const dg = readKey('DEEPGRAM_API_KEY');
+
+  const probes = [];
+
+  if (!anth) results.anthropic = 'missing';
+  else probes.push(fetch('https://api.anthropic.com/v1/models', {
+    headers: { 'x-api-key': anth, 'anthropic-version': '2023-06-01' },
+    signal: timeout(4000),
+  }).then(r => { results.anthropic = r.ok ? 'ok' : `err_${r.status}`; })
+    .catch(err => { results.anthropic = `err_${err.name}`; }));
+
+  if (!oai) results.openai = 'missing';
+  else probes.push(fetch('https://api.openai.com/v1/models', {
+    headers: { 'Authorization': `Bearer ${oai}` },
+    signal: timeout(4000),
+  }).then(r => { results.openai = r.ok ? 'ok' : `err_${r.status}`; })
+    .catch(err => { results.openai = `err_${err.name}`; }));
+
+  if (!dg) results.deepgram = 'missing';
+  else probes.push(fetch('https://api.deepgram.com/v1/projects', {
+    headers: { 'Authorization': `Token ${dg}` },
+    signal: timeout(4000),
+  }).then(r => { results.deepgram = r.ok ? 'ok' : `err_${r.status}`; })
+    .catch(err => { results.deepgram = `err_${err.name}`; }));
+
+  await Promise.all(probes);
+  return results;
 });
 
 // ─── profile IO ────────────────────────────────────────────────────────
@@ -228,7 +306,7 @@ ipcMain.handle('profile:read', (_e, name) => {
 
 // ─── embeddings (OpenAI) ───────────────────────────────────────────────
 ipcMain.handle('embeddings:compute', async (_e, texts) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = readKey('OPENAI_API_KEY');
   if (!apiKey) return { error: 'OPENAI_API_KEY missing' };
   try {
     const resp = await fetch('https://api.openai.com/v1/embeddings', {
@@ -266,6 +344,33 @@ ipcMain.handle('rag:save', (_e, profileName, payload) => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+// ─── session persistence ───────────────────────────────────────────────
+function sessionsDir() {
+  const d = path.join(userDataPath(), 'sessions');
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+ipcMain.handle('session:save', (_e, sessionId, payload) => {
+  try {
+    const safeId = String(sessionId).replace(/[^a-z0-9_-]/gi, '_');
+    fs.writeFileSync(path.join(sessionsDir(), `${safeId}.json`), JSON.stringify(payload), 'utf-8');
+    return true;
+  } catch (err) { return { error: err.message }; }
+});
+
+ipcMain.handle('session:load-latest', () => {
+  try {
+    const d = sessionsDir();
+    const files = fs.readdirSync(d)
+      .filter(f => f.endsWith('.json'))
+      .map(f => ({ f, mtime: fs.statSync(path.join(d, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length === 0) return null;
+    return JSON.parse(fs.readFileSync(path.join(d, files[0].f), 'utf-8'));
+  } catch { return null; }
 });
 
 // ─── app lifecycle ─────────────────────────────────────────────────────

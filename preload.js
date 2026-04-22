@@ -6,16 +6,27 @@ contextBridge.exposeInMainWorld('api', {
   getMicPermission: () => ipcRenderer.invoke('get-mic-permission'),
   requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),
 
+  // config (API keys + prefs)
+  configGetAll: () => ipcRenderer.invoke('config:get-all'),
+  configSet: (key, value) => ipcRenderer.invoke('config:set', key, value),
+
+  // health pre-flight
+  probeServices: () => ipcRenderer.invoke('services:probe'),
+
   // profile IO
   profileList: () => ipcRenderer.invoke('profile:list'),
   profileRead: (name) => ipcRenderer.invoke('profile:read', name),
 
-  // embeddings (OpenAI)
+  // embeddings
   embeddingsCompute: (texts) => ipcRenderer.invoke('embeddings:compute', texts),
 
   // RAG cache
   ragLoad: (profileName) => ipcRenderer.invoke('rag:load', profileName),
   ragSave: (profileName, payload) => ipcRenderer.invoke('rag:save', profileName, payload),
+
+  // session persistence
+  sessionSave: (sessionId, payload) => ipcRenderer.invoke('session:save', sessionId, payload),
+  sessionLoadLatest: () => ipcRenderer.invoke('session:load-latest'),
 
   // main-process events
   onProfileCycle: (cb) => ipcRenderer.on('profile:cycle', cb),

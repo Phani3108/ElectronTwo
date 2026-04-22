@@ -26,7 +26,7 @@ Rules you must follow:
 - If the retrieved stories don't cover the question, say so briefly and answer from general experience — do not invent numbers.
 - Never mention that you're an AI, a copilot, or that you have source material.`;
 
-export function buildAnthropicPayload({ profile, retrievedStories, recentTurns, question, maxTokens = 700 }) {
+export function buildAnthropicPayload({ profile, retrievedStories, recentTurns, question, notesBlock = '', maxTokens = 700 }) {
   const identityBlock = [
     `# Identity`,
     profile.identity?.trim() || '(no identity.md set)',
@@ -38,7 +38,8 @@ export function buildAnthropicPayload({ profile, retrievedStories, recentTurns, 
   const roleBlock = [
     `# Active role / company context`,
     profile.role?.trim() || '(no role.md set)',
-  ].join('\n');
+    notesBlock ? `\n# Live notes from this session\n${notesBlock}` : '',
+  ].filter(Boolean).join('\n');
 
   const turnsBlock = recentTurns.length > 0
     ? [

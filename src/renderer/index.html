@@ -14,6 +14,7 @@
       --err: #e57373;
       --border: rgba(255,255,255,0.08);
       --answer-bg: rgba(122, 162, 255, 0.06);
+      --notes-bg: rgba(224, 184, 74, 0.06);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -33,27 +34,35 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      position: relative;
     }
     header {
-      display: flex; align-items: center; gap: 10px;
+      display: flex; align-items: center; gap: 8px;
       padding: 10px 14px;
       border-bottom: 1px solid var(--border);
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .health-row { display: flex; align-items: center; gap: 6px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); flex-shrink: 0;
+      cursor: help;
+    }
     .dot.ok { background: var(--ok); }
     .dot.warn { background: var(--warn); }
     .dot.err { background: var(--err); }
     .state { font-size: 11px; letter-spacing: 0.03em; color: var(--muted); text-transform: uppercase; }
-    .profile {
+    .profile, .mode-chip {
       -webkit-app-region: no-drag;
       cursor: pointer;
       font-size: 11px;
-      color: var(--accent);
       padding: 2px 8px;
       border: 1px solid var(--border);
       border-radius: 4px;
+      color: var(--accent);
     }
-    .profile:hover { background: rgba(255,255,255,0.06); }
+    .mode-chip { color: var(--warn); }
+    .mode-chip.on { color: var(--ok); border-color: var(--ok); }
+    .profile:hover, .mode-chip:hover { background: rgba(255,255,255,0.06); }
     .timings {
       font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
       color: var(--muted);
@@ -87,7 +96,7 @@
     .answer .meta { font-size: 11px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
     .transcript {
       -webkit-app-region: no-drag;
-      max-height: 80px; overflow: auto;
+      max-height: 70px; overflow: auto;
       background: rgba(255,255,255,0.02);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -97,6 +106,17 @@
       white-space: pre-wrap;
     }
     .transcript .interim { opacity: 0.7; }
+    .intent-strip {
+      -webkit-app-region: no-drag;
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10px; color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      padding: 0 4px;
+      height: 16px;
+    }
+    .intent-strip .pill { padding: 1px 6px; border-radius: 3px; background: rgba(255,255,255,0.05); }
+    .intent-strip .pill.high { background: rgba(110,207,122,0.2); color: var(--ok); }
+    .intent-strip .pill.med { background: rgba(224,184,74,0.15); color: var(--warn); }
     .ask-row {
       -webkit-app-region: no-drag;
       display: flex; gap: 8px;
@@ -111,8 +131,28 @@
       font: inherit;
     }
     .ask-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .notes-panel {
+      -webkit-app-region: no-drag;
+      max-height: 140px; overflow: auto;
+      background: var(--notes-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      display: none;
+    }
+    .notes-panel.open { display: block; }
+    .notes-panel .note {
+      display: flex; align-items: flex-start; gap: 6px; padding: 3px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+    .notes-panel .note:last-child { border-bottom: none; }
+    .notes-panel .tag { color: var(--warn); font-family: ui-monospace, monospace; }
+    .notes-panel .rm { color: var(--muted); cursor: pointer; }
+    .notes-row { display: flex; gap: 8px; margin-top: 6px; }
+    .notes-row input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; color: var(--fg); font-size: 11px; }
     .log {
-      max-height: 100px; overflow: auto;
+      max-height: 90px; overflow: auto;
       font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       color: var(--muted);
       border-top: 1px solid var(--border);
@@ -121,28 +161,116 @@
     .log .err { color: var(--err); }
     .log .evt { color: var(--accent); }
     .log .ok { color: var(--ok); }
+
+    /* ── settings modal ── */
+    .settings-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none; align-items: center; justify-content: center;
+      z-index: 20;
+      -webkit-app-region: no-drag;
+    }
+    .settings-backdrop.open { display: flex; }
+    .settings-modal {
+      width: 90%; max-width: 460px;
+      background: rgba(28,28,34,0.98); backdrop-filter: blur(24px);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px 18px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .settings-modal h3 { margin: 0; font-size: 14px; }
+    .key-row { display: flex; flex-direction: column; gap: 4px; }
+    .key-row label { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+    .key-row label .status { font-family: ui-monospace, monospace; }
+    .key-row label .status.ok { color: var(--ok); }
+    .key-row label .status.err, .key-row label .status.missing { color: var(--err); }
+    .key-row input {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 8px;
+      color: var(--fg);
+      font: inherit;
+    }
+    .key-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
   </style>
 </head>
 <body>
   <div class="shell">
     <header>
-      <span class="dot" id="health-dot"></span>
+      <div class="health-row" id="health-row">
+        <span class="dot" data-svc="mic" title="mic"></span>
+        <span class="dot" data-svc="anthropic" title="anthropic"></span>
+        <span class="dot" data-svc="openai" title="openai"></span>
+        <span class="dot" data-svc="deepgram" title="deepgram"></span>
+      </div>
       <span class="state" id="state-label">idle</span>
       <span class="profile" id="profile-label" title="Cmd+Shift+P to cycle">profile: …</span>
+      <span class="mode-chip" id="mode-chip" title="Auto-draft on question">auto</span>
       <span class="spacer"></span>
       <span class="timings" id="timings"></span>
+      <button id="btn-notes" title="Toggle notes">📝</button>
+      <button id="btn-settings" title="Settings">⚙</button>
       <button id="btn-start" class="primary">Mic</button>
       <button id="btn-stop">Stop</button>
     </header>
+
     <main>
       <div class="transcript" id="transcript"></div>
-      <div class="answer" id="answer"><span style="color:var(--muted)">Ask a question below or enable the mic. Answers stream here.</span></div>
+      <div class="intent-strip" id="intent-strip"></div>
+      <div class="answer" id="answer"><span style="color:var(--muted)">Ask a question below, enable the mic, or toggle auto to have the app draft on detected questions.</span></div>
+      <div class="notes-panel" id="notes-panel">
+        <div id="notes-list"><span style="color:var(--muted)">No notes yet. Add "role: X" for tagged notes or free text.</span></div>
+        <div class="notes-row">
+          <input id="notes-input" type="text" placeholder='add a note — "role: Staff" or free text…' />
+          <button id="btn-notes-add">+</button>
+        </div>
+      </div>
       <div class="ask-row">
         <input id="ask-input" type="text" placeholder="Type a question and press Enter (bypasses STT for testing)…" />
         <button id="btn-ask">Ask</button>
       </div>
       <div class="log" id="log"></div>
     </main>
+
+    <div class="settings-backdrop" id="settings-backdrop">
+      <div class="settings-modal">
+        <h3>Settings — API keys</h3>
+        <div class="key-row">
+          <label>
+            <span>Anthropic (LLM)</span>
+            <span class="status" id="status-anthropic">—</span>
+          </label>
+          <input id="key-anthropic" type="password" placeholder="sk-ant-..." autocomplete="off" />
+        </div>
+        <div class="key-row">
+          <label>
+            <span>OpenAI (embeddings)</span>
+            <span class="status" id="status-openai">—</span>
+          </label>
+          <input id="key-openai" type="password" placeholder="sk-..." autocomplete="off" />
+        </div>
+        <div class="key-row">
+          <label>
+            <span>Deepgram (STT)</span>
+            <span class="status" id="status-deepgram">—</span>
+          </label>
+          <input id="key-deepgram" type="password" placeholder="token..." autocomplete="off" />
+        </div>
+        <div class="key-row">
+          <label>
+            <span>Microphone</span>
+            <span class="status" id="status-mic">—</span>
+          </label>
+          <div style="font-size:11px;color:var(--muted)">macOS System Settings → Privacy & Security → Microphone → this app</div>
+        </div>
+        <div class="settings-actions">
+          <button id="btn-settings-test">Test all</button>
+          <button id="btn-settings-save" class="primary">Save & close</button>
+        </div>
+      </div>
+    </div>
   </div>
   <script type="module" src="./app.js"></script>
 </body>

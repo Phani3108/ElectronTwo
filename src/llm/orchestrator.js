@@ -26,12 +26,13 @@ const RAG_K = 4;
 const RECENT_TURNS = 3;
 
 export class LLMOrchestrator {
-  constructor({ bus, api, rag, profileManager, model = DEFAULT_MODEL }) {
+  constructor({ bus, api, rag, profileManager, notes = null, model = DEFAULT_MODEL }) {
     if (!bus || !api || !rag || !profileManager) throw new Error('orchestrator missing deps');
     this._bus = bus;
     this._api = api;
     this._rag = rag;
     this._profiles = profileManager;
+    this._notes = notes;
     this._model = model;
     this._recent = [];          // rolling last-N Q&A turns
     this._abort = null;
@@ -80,6 +81,7 @@ export class LLMOrchestrator {
       profile,
       retrievedStories: retrieved,
       recentTurns: this._recent.slice(-RECENT_TURNS),
+      notesBlock: this._notes?.asContextBlock() || '',
       question: qn,
     });
 
