@@ -6,12 +6,17 @@
 import { EventBus } from '../bus/event-bus.js';
 import { AudioPipeline, STATES } from '../audio/pipeline.js';
 import { DeepgramTransport } from '../stt/deepgram-transport.js';
+import { WhisperTransport } from '../stt/whisper-transport.js';
+import { FallbackTransport } from '../stt/fallback-transport.js';
 import { ProfileManager } from '../profile/profile-manager.js';
 import { StoryRAG } from '../rag/story-rag.js';
 import { LLMOrchestrator } from '../llm/orchestrator.js';
+import { AnthropicProvider } from '../llm/providers/anthropic.js';
+import { OllamaProvider } from '../llm/providers/ollama.js';
 import { AutoDrafter } from '../intent/auto-draft.js';
 import { LiveNotes } from '../notes/notes.js';
 import { SessionManager } from '../session/session-manager.js';
+import { Metrics } from '../observability/metrics.js';
 
 const bus = new EventBus();
 const api = window.api;
@@ -20,13 +25,27 @@ const api = window.api;
 const profiles = new ProfileManager({ bus, api });
 const rag = new StoryRAG({ bus, api });
 const notes = new LiveNotes({ bus });
-const orchestrator = new LLMOrchestrator({ bus, api, rag, profileManager: profiles, notes });
+const metrics = new Metrics({ bus });
+
+const anthropic = new AnthropicProvider({ getApiKey: () => api.getEnv('ANTHROPIC_API_KEY') });
+const ollama = new OllamaProvider();
+
+const orchestrator = new LLMOrchestrator({
+  bus, rag, profileManager: profiles, notes,
+  providers: [anthropic, ollama], // cloud-first, Ollama fallback
+});
+
 const drafter = new AutoDrafter({ bus, orchestrator });
 const session = new SessionManager({ bus, api, notes });
-const transport = new DeepgramTransport({
-  getApiKey: () => api.getEnv('DEEPGRAM_API_KEY'),
+
+const deepgram = new DeepgramTransport({ getApiKey: () => api.getEnv('DEEPGRAM_API_KEY') });
+const whisper = new WhisperTransport();
+const sttTransport = new FallbackTransport({
+  transports: [deepgram, whisper],
+  names: ['deepgram', 'whisper-local'],
+  bus,
 });
-const pipeline = new AudioPipeline({ bus, transport });
+const pipeline = new AudioPipeline({ bus, transport: sttTransport });
 
 // ── dom refs ──
 const el = {
@@ -34,6 +53,8 @@ const el = {
   stateLabel: document.getElementById('state-label'),
   profileLabel: document.getElementById('profile-label'),
   modeChip: document.getElementById('mode-chip'),
+  offlineChip: document.getElementById('offline-chip'),
+  metricsStrip: document.getElementById('metrics-strip'),
   timings: document.getElementById('timings'),
   btnNotes: document.getElementById('btn-notes'),
   btnSettings: document.getElementById('btn-settings'),
@@ -179,6 +200,32 @@ bus.on('rag:indexed', ({ profile, count, ms, embedded }) => {
 
 bus.on('rag:error', ({ message }) => log(`rag error: ${escapeHtml(message)}`, 'err'));
 
+bus.on('metrics:update', (snap) => {
+  const last = snap.last || {};
+  const p50 = snap.p50 || {};
+  const parts = [];
+  if (last.stt_connect != null) parts.push(`stt ${Math.round(last.stt_connect)}`);
+  if (last.rag != null) parts.push(`rag ${Math.round(last.rag)}`);
+  if (last.ttft != null) parts.push(`ttft ${Math.round(last.ttft)}`);
+  if (last.total != null) parts.push(`total ${Math.round(last.total)}`);
+  const p50parts = [];
+  if (p50.ttft != null) p50parts.push(`p50 ttft ${Math.round(p50.ttft)}`);
+  if (p50.total != null) p50parts.push(`total ${Math.round(p50.total)}`);
+  el.metricsStrip.innerHTML = parts.length
+    ? `<span class="pill">${parts.join(' · ')}</span>${p50parts.length ? `<span style="opacity:.6">${p50parts.join(' · ')}</span>` : ''}`
+    : '';
+});
+
+bus.on('stt:transport-selected', ({ name, fallback }) => {
+  log(`<span class="${fallback ? 'evt' : 'ok'}">stt</span> → ${name}${fallback ? ' (fallback)' : ''}`);
+});
+bus.on('stt:transport-failed', ({ name, reason }) => {
+  log(`stt ${name} failed: ${escapeHtml(reason)}`, 'err');
+});
+bus.on('llm:provider', ({ name, fallback }) => {
+  if (fallback) log(`<span class="evt">llm</span> fallback → ${name}`);
+});
+
 bus.on('intent:classified', (x) => renderIntent(x));
 bus.on('intent:draft-queued', ({ in_ms }) => log(`<span class="evt">intent</span> draft queued in ${in_ms}ms`));
 bus.on('intent:draft-cancelled', ({ reason }) => log(`intent cancel: ${reason}`));
@@ -243,6 +290,15 @@ api.onProfileCycle(() => {
 
 el.modeChip.addEventListener('click', () => drafter.setEnabled(!drafter.enabled));
 
+let offline = false;
+el.offlineChip.addEventListener('click', () => {
+  offline = !offline;
+  el.offlineChip.classList.toggle('on', offline);
+  el.offlineChip.textContent = offline ? 'offline' : 'online';
+  orchestrator.setProviderOrder(offline ? ['ollama', 'anthropic'] : ['anthropic', 'ollama']);
+  log(`<span class="evt">mode</span> ${offline ? 'offline (ollama primary)' : 'online (anthropic primary)'}`);
+});
+
 // Notes
 el.btnNotes.addEventListener('click', () => el.notesPanel.classList.toggle('open'));
 function submitNote() {
@@ -295,6 +351,7 @@ async function probeAndRender() {
   renderHealthDot('anthropic', r.anthropic);
   renderHealthDot('openai', r.openai);
   renderHealthDot('deepgram', r.deepgram);
+  renderHealthDot('ollama', r.ollama);
   el.statusMic.textContent = r.mic;
   el.statusMic.className = 'status ' + (r.mic === 'granted' || r.mic === 'ok' ? 'ok' : r.mic === 'denied' ? 'err' : 'warn');
   const set = (elStatus, v) => {

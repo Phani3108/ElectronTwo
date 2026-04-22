@@ -5,14 +5,51 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac dmg"
   },
   "keywords": ["electron", "interview", "copilot", "realtime", "stt"],
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
   },
   "dependencies": {
     "dotenv": "^16.4.5"
+  },
+  "optionalDependencies": {
+    "@xenova/transformers": "^2.17.2"
+  },
+  "build": {
+    "appId": "com.phani.electrontwo",
+    "productName": "ElectronTwo",
+    "artifactName": "ElectronTwo-${version}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "!src/**/*.test.js",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ElectronTwo listens to your meeting audio to transcribe questions.",
+        "NSCameraUsageDescription": "Not used.",
+        "LSUIElement": true
+      }
+    },
+    "dmg": {
+      "sign": false
+    }
   }
 }

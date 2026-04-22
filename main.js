@@ -130,7 +130,7 @@ function maskKey(k) {
 
 // ─── services:probe — health pre-flight ────────────────────────────────
 ipcMain.handle('services:probe', async () => {
-  const results = { mic: 'unknown', anthropic: 'unknown', openai: 'unknown', deepgram: 'unknown' };
+  const results = { mic: 'unknown', anthropic: 'unknown', openai: 'unknown', deepgram: 'unknown', ollama: 'unknown' };
 
   // Mic (macOS only reports meaningful state)
   if (process.platform === 'darwin') {
@@ -167,6 +167,11 @@ ipcMain.handle('services:probe', async () => {
     signal: timeout(4000),
   }).then(r => { results.deepgram = r.ok ? 'ok' : `err_${r.status}`; })
     .catch(err => { results.deepgram = `err_${err.name}`; }));
+
+  // Ollama — local, optional. "missing" = not running; "ok" = reachable.
+  probes.push(fetch('http://127.0.0.1:11434/api/tags', { signal: timeout(1500) })
+    .then(r => { results.ollama = r.ok ? 'ok' : `err_${r.status}`; })
+    .catch(() => { results.ollama = 'missing'; }));
 
   await Promise.all(probes);
   return results;

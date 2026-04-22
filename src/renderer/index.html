@@ -204,10 +204,12 @@
         <span class="dot" data-svc="anthropic" title="anthropic"></span>
         <span class="dot" data-svc="openai" title="openai"></span>
         <span class="dot" data-svc="deepgram" title="deepgram"></span>
+        <span class="dot" data-svc="ollama" title="ollama (local, optional)"></span>
       </div>
       <span class="state" id="state-label">idle</span>
       <span class="profile" id="profile-label" title="Cmd+Shift+P to cycle">profile: …</span>
       <span class="mode-chip" id="mode-chip" title="Auto-draft on question">auto</span>
+      <span class="mode-chip" id="offline-chip" title="Offline mode — Ollama + local Whisper">online</span>
       <span class="spacer"></span>
       <span class="timings" id="timings"></span>
       <button id="btn-notes" title="Toggle notes">📝</button>
@@ -217,6 +219,7 @@
     </header>
 
     <main>
+      <div class="intent-strip" id="metrics-strip" style="opacity:.75"></div>
       <div class="transcript" id="transcript"></div>
       <div class="intent-strip" id="intent-strip"></div>
       <div class="answer" id="answer"><span style="color:var(--muted)">Ask a question below, enable the mic, or toggle auto to have the app draft on detected questions.</span></div>
