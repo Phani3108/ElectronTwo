@@ -13,6 +13,7 @@
       --warn: #e0b84a;
       --err: #e57373;
       --border: rgba(255,255,255,0.08);
+      --answer-bg: rgba(122, 162, 255, 0.06);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -38,16 +39,25 @@
       padding: 10px 14px;
       border-bottom: 1px solid var(--border);
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
     .dot.ok { background: var(--ok); }
     .dot.warn { background: var(--warn); }
     .dot.err { background: var(--err); }
-    .state {
-      font-variant-numeric: tabular-nums;
+    .state { font-size: 11px; letter-spacing: 0.03em; color: var(--muted); text-transform: uppercase; }
+    .profile {
+      -webkit-app-region: no-drag;
+      cursor: pointer;
       font-size: 11px;
-      letter-spacing: 0.03em;
+      color: var(--accent);
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .profile:hover { background: rgba(255,255,255,0.06); }
+    .timings {
+      font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
       color: var(--muted);
-      text-transform: uppercase;
+      font-variant-numeric: tabular-nums;
     }
     .spacer { flex: 1; }
     button {
@@ -62,33 +72,55 @@
     }
     button:hover { background: rgba(255,255,255,0.1); }
     button.primary { background: var(--accent); color: #0a0a12; border-color: var(--accent); }
-    main {
-      flex: 1; overflow: hidden;
-      display: flex; flex-direction: column;
-      padding: 12px 14px;
-      gap: 10px;
-    }
-    .transcript {
+    main { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 12px 14px; gap: 10px; }
+    .answer {
       -webkit-app-region: no-drag;
       flex: 1; overflow: auto;
+      background: var(--answer-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .answer .meta { font-size: 11px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+    .transcript {
+      -webkit-app-region: no-drag;
+      max-height: 80px; overflow: auto;
       background: rgba(255,255,255,0.02);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 14px;
-      line-height: 1.5;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: var(--muted);
       white-space: pre-wrap;
     }
-    .transcript .interim { color: var(--muted); }
+    .transcript .interim { opacity: 0.7; }
+    .ask-row {
+      -webkit-app-region: no-drag;
+      display: flex; gap: 8px;
+    }
+    .ask-row input {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--fg);
+      font: inherit;
+    }
+    .ask-row input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
     .log {
-      max-height: 120px; overflow: auto;
-      font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      max-height: 100px; overflow: auto;
+      font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       color: var(--muted);
       border-top: 1px solid var(--border);
-      padding-top: 8px;
+      padding-top: 6px;
     }
     .log .err { color: var(--err); }
-    .log .state-evt { color: var(--accent); }
+    .log .evt { color: var(--accent); }
+    .log .ok { color: var(--ok); }
   </style>
 </head>
 <body>
@@ -96,12 +128,19 @@
     <header>
       <span class="dot" id="health-dot"></span>
       <span class="state" id="state-label">idle</span>
+      <span class="profile" id="profile-label" title="Cmd+Shift+P to cycle">profile: …</span>
       <span class="spacer"></span>
-      <button id="btn-start" class="primary">Start</button>
+      <span class="timings" id="timings"></span>
+      <button id="btn-start" class="primary">Mic</button>
       <button id="btn-stop">Stop</button>
     </header>
     <main>
       <div class="transcript" id="transcript"></div>
+      <div class="answer" id="answer"><span style="color:var(--muted)">Ask a question below or enable the mic. Answers stream here.</span></div>
+      <div class="ask-row">
+        <input id="ask-input" type="text" placeholder="Type a question and press Enter (bypasses STT for testing)…" />
+        <button id="btn-ask">Ask</button>
+      </div>
       <div class="log" id="log"></div>
     </main>
   </div>
