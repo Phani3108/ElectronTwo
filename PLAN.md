@@ -226,4 +226,8 @@ Two products that share an orchestrator:
 ## Change log
 
 - **Day 0 (Phase 0)**: scaffold committed. Audio pipeline, event bus, Deepgram transport, minimal renderer.
+- **Phase 1**: profile manager, atomic-story RAG, layered prompt with cache_control, streaming LLM orchestrator.
+- **Phase 2**: config store for keys, health pre-flight, intent classifier + auto-draft, live notes, session persistence, settings modal.
+- **Phase 3**: fallback chains (Deepgram→Whisper, Anthropic→Ollama), observability strip, electron-builder packaging config.
+- **Phase 4 (spike)**: ShadowTwo Android project scaffolded at `/Users/phani.m/Downloads/ShadowTwo/`. Foreground service + MediaProjection capture + OpenAI Realtime WS + earbud-path playback + bleed self-test. Ready for on-device validation.
 - Future entries go here. Any change to scope, acceptance, or timeline gets a dated line.
