@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('api', {
   // health pre-flight
   probeServices: () => ipcRenderer.invoke('services:probe'),
 
+  // Test one provider's credentials. `overrides` lets settings UI test what
+  // the user just typed before saving.
+  keyTest: (provider, overrides) => ipcRenderer.invoke('key:test', provider, overrides),
+
   // paths + shell
   profilesRoot: () => ipcRenderer.invoke('profiles:root'),
   openPath: (target) => ipcRenderer.invoke('open-path', target),

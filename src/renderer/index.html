@@ -171,6 +171,10 @@
       -webkit-app-region: no-drag;
     }
     .settings-backdrop.open { display: flex; }
+    /* Make EVERY interactive element inside modals clickable — drag region
+       inherits from body otherwise and swallows clicks on non-button UI. */
+    .settings-backdrop, .settings-backdrop * { -webkit-app-region: no-drag; }
+    .session-row, .rm, .session-row *, .dot { -webkit-app-region: no-drag; }
     .settings-modal {
       width: 90%; max-width: 460px;
       background: rgba(28,28,34,0.98); backdrop-filter: blur(24px);
@@ -205,6 +209,7 @@
         <span class="dot" data-svc="openai" title="openai"></span>
         <span class="dot" data-svc="deepgram" title="deepgram"></span>
         <span class="dot" data-svc="ollama" title="ollama (local, optional)"></span>
+        <span class="dot" data-svc="azure" title="azure openai (optional)"></span>
       </div>
       <span class="state" id="state-label">idle</span>
       <span class="profile" id="profile-label" title="Cmd+Shift+P to cycle">profile: …</span>
@@ -239,43 +244,95 @@
     </main>
 
     <div class="settings-backdrop" id="settings-backdrop">
-      <div class="settings-modal">
-        <h3>Settings — API keys</h3>
+      <div class="settings-modal" style="max-width:520px; max-height:88vh; overflow:auto;">
+        <h3>Settings</h3>
+
         <div class="key-row">
-          <label>
-            <span>Anthropic (LLM)</span>
-            <span class="status" id="status-anthropic">—</span>
-          </label>
+          <label><span>LLM provider</span></label>
+          <select id="sel-llm-provider" style="background:rgba(255,255,255,0.06); color:var(--fg); border:1px solid var(--border); border-radius:5px; padding:6px 8px; font:inherit;">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="azure">Azure OpenAI</option>
+            <option value="ollama">Ollama (local)</option>
+          </select>
+        </div>
+
+        <div class="key-row">
+          <label><span>Embedding provider</span></label>
+          <select id="sel-embedding-provider" style="background:rgba(255,255,255,0.06); color:var(--fg); border:1px solid var(--border); border-radius:5px; padding:6px 8px; font:inherit;">
+            <option value="openai">OpenAI (text-embedding-3-small)</option>
+            <option value="azure">Azure OpenAI (your deployment)</option>
+          </select>
+        </div>
+
+        <!-- Anthropic -->
+        <div class="key-row" id="row-anthropic">
+          <label><span>Anthropic API key</span><span class="status" id="status-anthropic">—</span></label>
           <input id="key-anthropic" type="password" placeholder="sk-ant-..." autocomplete="off" />
+          <div class="settings-actions" style="justify-content:flex-start; gap:6px;">
+            <button data-save-key="ANTHROPIC_API_KEY" data-input="key-anthropic">Save</button>
+            <button data-test-provider="anthropic" data-collect-inputs="ANTHROPIC_API_KEY:key-anthropic">Test</button>
+          </div>
         </div>
-        <div class="key-row">
-          <label>
-            <span>OpenAI (embeddings)</span>
-            <span class="status" id="status-openai">—</span>
-          </label>
+
+        <!-- Azure OpenAI -->
+        <div class="key-row" id="row-azure-key">
+          <label><span>Azure OpenAI API key</span><span class="status" id="status-azure">—</span></label>
+          <input id="key-azure" type="password" placeholder="..." autocomplete="off" />
+        </div>
+        <div class="key-row" id="row-azure-resource">
+          <label><span>Azure resource (name only)</span></label>
+          <input id="key-azure-resource" type="text" placeholder="my-aoai-resource" autocomplete="off" />
+        </div>
+        <div class="key-row" id="row-azure-chat">
+          <label><span>Azure chat deployment</span></label>
+          <input id="key-azure-chat-deployment" type="text" placeholder="gpt-4o" autocomplete="off" />
+        </div>
+        <div class="key-row" id="row-azure-embedding">
+          <label><span>Azure embedding deployment</span></label>
+          <input id="key-azure-embedding-deployment" type="text" placeholder="text-embedding-3-small" autocomplete="off" />
+        </div>
+        <div class="key-row" id="row-azure-version">
+          <label><span>Azure API version</span></label>
+          <input id="key-azure-version" type="text" placeholder="2024-08-01-preview" autocomplete="off" />
+          <div class="settings-actions" style="justify-content:flex-start; gap:6px; flex-wrap:wrap;">
+            <button id="btn-save-azure">Save Azure</button>
+            <button id="btn-test-azure-chat">Test chat</button>
+            <button id="btn-test-azure-embedding">Test embedding</button>
+          </div>
+        </div>
+
+        <!-- OpenAI (embeddings or backup) -->
+        <div class="key-row" id="row-openai">
+          <label><span>OpenAI API key (embeddings)</span><span class="status" id="status-openai">—</span></label>
           <input id="key-openai" type="password" placeholder="sk-..." autocomplete="off" />
+          <div class="settings-actions" style="justify-content:flex-start; gap:6px;">
+            <button data-save-key="OPENAI_API_KEY" data-input="key-openai">Save</button>
+            <button data-test-provider="openai" data-collect-inputs="OPENAI_API_KEY:key-openai">Test</button>
+          </div>
         </div>
-        <div class="key-row">
-          <label>
-            <span>Deepgram (STT)</span>
-            <span class="status" id="status-deepgram">—</span>
-          </label>
+
+        <!-- Deepgram -->
+        <div class="key-row" id="row-deepgram">
+          <label><span>Deepgram API token (STT)</span><span class="status" id="status-deepgram">—</span></label>
           <input id="key-deepgram" type="password" placeholder="token..." autocomplete="off" />
+          <div class="settings-actions" style="justify-content:flex-start; gap:6px;">
+            <button data-save-key="DEEPGRAM_API_KEY" data-input="key-deepgram">Save</button>
+            <button data-test-provider="deepgram" data-collect-inputs="DEEPGRAM_API_KEY:key-deepgram">Test</button>
+          </div>
         </div>
+
         <div class="key-row">
-          <label>
-            <span>Microphone</span>
-            <span class="status" id="status-mic">—</span>
-          </label>
-          <div style="font-size:11px;color:var(--muted)">macOS System Settings → Privacy & Security → Microphone → this app</div>
+          <label><span>Microphone</span><span class="status" id="status-mic">—</span></label>
+          <div style="font-size:11px;color:var(--muted)">macOS System Settings → Privacy & Security → Microphone → enable this app</div>
         </div>
-        <div class="settings-actions">
+
+        <div class="settings-actions" style="border-top:1px solid var(--border); padding-top:10px;">
           <button id="btn-profile-import">Import profile…</button>
           <button id="btn-profile-export">Export active profile…</button>
         </div>
         <div class="settings-actions">
-          <button id="btn-settings-test">Test all</button>
-          <button id="btn-settings-save" class="primary">Save & close</button>
+          <button id="btn-settings-test">Probe all</button>
+          <button id="btn-settings-save" class="primary">Close</button>
         </div>
       </div>
     </div>

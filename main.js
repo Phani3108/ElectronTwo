@@ -130,7 +130,7 @@ function maskKey(k) {
 
 // ─── services:probe — health pre-flight ────────────────────────────────
 ipcMain.handle('services:probe', async () => {
-  const results = { mic: 'unknown', anthropic: 'unknown', openai: 'unknown', deepgram: 'unknown', ollama: 'unknown' };
+  const results = { mic: 'unknown', anthropic: 'unknown', openai: 'unknown', deepgram: 'unknown', ollama: 'unknown', azure: 'unknown' };
 
   // Mic (macOS only reports meaningful state)
   if (process.platform === 'darwin') {
@@ -173,8 +173,99 @@ ipcMain.handle('services:probe', async () => {
     .then(r => { results.ollama = r.ok ? 'ok' : `err_${r.status}`; })
     .catch(() => { results.ollama = 'missing'; }));
 
+  // Azure OpenAI — needs key + resource + chat deployment to probe
+  const azKey = readKey('AZURE_OPENAI_API_KEY');
+  const azRes = readKey('AZURE_OPENAI_RESOURCE');
+  const azDep = readKey('AZURE_OPENAI_CHAT_DEPLOYMENT');
+  const azVer = readKey('AZURE_OPENAI_API_VERSION') || '2024-08-01-preview';
+  if (!azKey || !azRes || !azDep) results.azure = 'missing';
+  else {
+    const url = `https://${sanitizeAzureResource(azRes)}.openai.azure.com/openai/deployments/${encodeURIComponent(azDep)}/chat/completions?api-version=${encodeURIComponent(azVer)}`;
+    probes.push(fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': azKey },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+      signal: timeout(6000),
+    }).then(r => { results.azure = r.ok ? 'ok' : `err_${r.status}`; })
+      .catch(err => { results.azure = `err_${err.name}`; }));
+  }
+
   await Promise.all(probes);
   return results;
+});
+
+// ─── key:test — test an individual key with optional override values ───
+// Lets the settings UI test a key the user just typed (before Save) and
+// surface the real status (not just "saved").
+ipcMain.handle('key:test', async (_e, provider, overrides = {}) => {
+  const t = AbortSignal.timeout.bind(AbortSignal);
+  const g = (k) => (overrides[k] ?? readKey(k));
+  try {
+    if (provider === 'anthropic') {
+      const key = g('ANTHROPIC_API_KEY');
+      if (!key) return { ok: false, reason: 'missing_key' };
+      const r = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        signal: t(5000),
+      });
+      return r.ok ? { ok: true } : { ok: false, reason: `http_${r.status}` };
+    }
+    if (provider === 'openai') {
+      const key = g('OPENAI_API_KEY');
+      if (!key) return { ok: false, reason: 'missing_key' };
+      const r = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }, signal: t(5000),
+      });
+      return r.ok ? { ok: true } : { ok: false, reason: `http_${r.status}` };
+    }
+    if (provider === 'deepgram') {
+      const key = g('DEEPGRAM_API_KEY');
+      if (!key) return { ok: false, reason: 'missing_key' };
+      const r = await fetch('https://api.deepgram.com/v1/projects', {
+        headers: { 'Authorization': `Token ${key}` }, signal: t(5000),
+      });
+      return r.ok ? { ok: true } : { ok: false, reason: `http_${r.status}` };
+    }
+    if (provider === 'azure') {
+      const key = g('AZURE_OPENAI_API_KEY');
+      const res = g('AZURE_OPENAI_RESOURCE');
+      const dep = g('AZURE_OPENAI_CHAT_DEPLOYMENT');
+      const ver = g('AZURE_OPENAI_API_VERSION') || '2024-08-01-preview';
+      if (!key) return { ok: false, reason: 'missing_key' };
+      if (!res) return { ok: false, reason: 'missing_resource' };
+      if (!dep) return { ok: false, reason: 'missing_deployment' };
+      const url = `https://${sanitizeAzureResource(res)}.openai.azure.com/openai/deployments/${encodeURIComponent(dep)}/chat/completions?api-version=${encodeURIComponent(ver)}`;
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': key },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+        signal: t(8000),
+      });
+      if (r.ok) return { ok: true };
+      const body = await r.text().catch(() => '');
+      let msg = '';
+      try { msg = JSON.parse(body)?.error?.message || body; } catch { msg = body; }
+      return { ok: false, reason: `http_${r.status}`, detail: msg.substring(0, 200) };
+    }
+    if (provider === 'azure-embedding') {
+      const key = g('AZURE_OPENAI_API_KEY');
+      const res = g('AZURE_OPENAI_RESOURCE');
+      const dep = g('AZURE_OPENAI_EMBEDDING_DEPLOYMENT');
+      const ver = g('AZURE_OPENAI_API_VERSION') || '2024-08-01-preview';
+      if (!key || !res || !dep) return { ok: false, reason: 'missing_fields' };
+      const url = `https://${sanitizeAzureResource(res)}.openai.azure.com/openai/deployments/${encodeURIComponent(dep)}/embeddings?api-version=${encodeURIComponent(ver)}`;
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': key },
+        body: JSON.stringify({ input: ['hello'] }),
+        signal: t(8000),
+      });
+      return r.ok ? { ok: true } : { ok: false, reason: `http_${r.status}` };
+    }
+    return { ok: false, reason: 'unknown_provider' };
+  } catch (err) {
+    return { ok: false, reason: err.name || err.message };
+  }
 });
 
 // ─── profile IO ────────────────────────────────────────────────────────
@@ -380,8 +471,40 @@ ipcMain.handle('profile:import', async () => {
   return { name: rawName, storyCount: stories.length };
 });
 
-// ─── embeddings (OpenAI) ───────────────────────────────────────────────
+// ─── embeddings (OpenAI or Azure) ──────────────────────────────────────
+// Routes based on config.embedding_provider: "azure" | "openai" (default).
+// Azure requires resource + embedding deployment + api-key.
+function sanitizeAzureResource(raw) {
+  return (raw || '').replace(/^https?:\/\//i, '').replace(/\.openai\.azure\.com.*$/i, '').trim();
+}
+
 ipcMain.handle('embeddings:compute', async (_e, texts) => {
+  const provider = (config?.get('embedding_provider') || 'openai').toLowerCase();
+
+  if (provider === 'azure') {
+    const key = readKey('AZURE_OPENAI_API_KEY');
+    const resource = readKey('AZURE_OPENAI_RESOURCE');
+    const deployment = readKey('AZURE_OPENAI_EMBEDDING_DEPLOYMENT');
+    const version = readKey('AZURE_OPENAI_API_VERSION') || '2024-08-01-preview';
+    if (!key) return { error: 'AZURE_OPENAI_API_KEY missing' };
+    if (!resource) return { error: 'AZURE_OPENAI_RESOURCE missing' };
+    if (!deployment) return { error: 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT missing' };
+    const url = `https://${sanitizeAzureResource(resource)}.openai.azure.com/openai/deployments/${encodeURIComponent(deployment)}/embeddings?api-version=${encodeURIComponent(version)}`;
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': key },
+        body: JSON.stringify({ input: texts }),
+      });
+      if (!resp.ok) return { error: `azure embeddings http ${resp.status}` };
+      const json = await resp.json();
+      return { vectors: json.data.map(d => d.embedding) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  // Default: OpenAI
   const apiKey = readKey('OPENAI_API_KEY');
   if (!apiKey) return { error: 'OPENAI_API_KEY missing' };
   try {

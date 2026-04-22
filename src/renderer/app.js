@@ -13,6 +13,7 @@ import { StoryRAG } from '../rag/story-rag.js';
 import { LLMOrchestrator } from '../llm/orchestrator.js';
 import { AnthropicProvider } from '../llm/providers/anthropic.js';
 import { OllamaProvider } from '../llm/providers/ollama.js';
+import { AzureOpenAIProvider } from '../llm/providers/azure-openai.js';
 import { AutoDrafter } from '../intent/auto-draft.js';
 import { LiveNotes } from '../notes/notes.js';
 import { SessionManager } from '../session/session-manager.js';
@@ -29,10 +30,27 @@ const metrics = new Metrics({ bus });
 
 const anthropic = new AnthropicProvider({ getApiKey: () => api.getEnv('ANTHROPIC_API_KEY') });
 const ollama = new OllamaProvider();
+const azure = new AzureOpenAIProvider({
+  getConfig: async () => {
+    const all = await api.configGetAll();
+    // configGetAll redacts keys (returns "set:xxxx…yyyy" marker). For the
+    // actual value we read via getEnv which fetches the raw stored key.
+    const sensitiveKeys = ['AZURE_OPENAI_API_KEY'];
+    const cfg = { ...all };
+    for (const k of sensitiveKeys) {
+      if (typeof cfg[k] === 'string' && cfg[k].startsWith('set:')) {
+        cfg[k] = await api.getEnv(k);
+      } else if (!cfg[k]) {
+        cfg[k] = await api.getEnv(k);
+      }
+    }
+    return cfg;
+  },
+});
 
 const orchestrator = new LLMOrchestrator({
   bus, rag, profileManager: profiles, notes,
-  providers: [anthropic, ollama], // cloud-first, Ollama fallback
+  providers: [anthropic, azure, ollama], // default order; rewired after config load
 });
 
 const drafter = new AutoDrafter({ bus, orchestrator });
@@ -76,12 +94,33 @@ const el = {
   btnSettingsSave: document.getElementById('btn-settings-save'),
   btnProfileExport: document.getElementById('btn-profile-export'),
   btnProfileImport: document.getElementById('btn-profile-import'),
+  selLlmProvider: document.getElementById('sel-llm-provider'),
+  selEmbeddingProvider: document.getElementById('sel-embedding-provider'),
+  // keys
   keyAnthropic: document.getElementById('key-anthropic'),
   keyOpenai: document.getElementById('key-openai'),
   keyDeepgram: document.getElementById('key-deepgram'),
+  keyAzure: document.getElementById('key-azure'),
+  keyAzureResource: document.getElementById('key-azure-resource'),
+  keyAzureChatDeployment: document.getElementById('key-azure-chat-deployment'),
+  keyAzureEmbeddingDeployment: document.getElementById('key-azure-embedding-deployment'),
+  keyAzureVersion: document.getElementById('key-azure-version'),
+  btnSaveAzure: document.getElementById('btn-save-azure'),
+  btnTestAzureChat: document.getElementById('btn-test-azure-chat'),
+  btnTestAzureEmbedding: document.getElementById('btn-test-azure-embedding'),
+  // rows (to show/hide by provider)
+  rowAnthropic: document.getElementById('row-anthropic'),
+  rowAzureKey: document.getElementById('row-azure-key'),
+  rowAzureResource: document.getElementById('row-azure-resource'),
+  rowAzureChat: document.getElementById('row-azure-chat'),
+  rowAzureEmbedding: document.getElementById('row-azure-embedding'),
+  rowAzureVersion: document.getElementById('row-azure-version'),
+  rowOpenai: document.getElementById('row-openai'),
+  rowDeepgram: document.getElementById('row-deepgram'),
   statusAnthropic: document.getElementById('status-anthropic'),
   statusOpenai: document.getElementById('status-openai'),
   statusDeepgram: document.getElementById('status-deepgram'),
+  statusAzure: document.getElementById('status-azure'),
   statusMic: document.getElementById('status-mic'),
   // sessions panel
   btnSessions: document.getElementById('btn-sessions'),
@@ -347,22 +386,150 @@ el.notesList.addEventListener('click', (e) => {
   if (rm) notes.remove(rm.dataset.id);
 });
 
-// Settings modal
+// ─── settings modal ───────────────────────────────────────────────────
+function setStatus(elStatus, state, detail) {
+  if (!elStatus) return;
+  elStatus.textContent = state + (detail ? ` (${detail.substring(0, 40)})` : '');
+  let cls = '';
+  if (state === 'ok' || state === 'granted') cls = 'ok';
+  else if (state === 'missing' || state === 'denied') cls = 'err';
+  else if (typeof state === 'string' && state.startsWith('err')) cls = 'err';
+  else if (state) cls = 'warn';
+  elStatus.className = 'status ' + cls;
+}
+
 el.btnSettings.addEventListener('click', openSettings);
-el.btnSettingsSave.addEventListener('click', saveSettings);
+el.btnSettingsSave.addEventListener('click', () => el.settingsBackdrop.classList.remove('open'));
 el.btnSettingsTest.addEventListener('click', probeAndRender);
 el.settingsBackdrop.addEventListener('click', (e) => {
   if (e.target === el.settingsBackdrop) el.settingsBackdrop.classList.remove('open');
 });
 
+// LLM provider picker — saves to config and rewires orchestrator.
+el.selLlmProvider.addEventListener('change', async () => {
+  const v = el.selLlmProvider.value;
+  await api.configSet('llm_provider', v);
+  applyLlmProvider(v);
+  refreshSettingsVisibility();
+});
+el.selEmbeddingProvider.addEventListener('change', async () => {
+  await api.configSet('embedding_provider', el.selEmbeddingProvider.value);
+  refreshSettingsVisibility();
+});
+
+function applyLlmProvider(v) {
+  if (v === 'azure') orchestrator.setProviderOrder(['azure', 'anthropic', 'ollama']);
+  else if (v === 'ollama') orchestrator.setProviderOrder(['ollama', 'anthropic', 'azure']);
+  else orchestrator.setProviderOrder(['anthropic', 'azure', 'ollama']);
+  log(`<span class="evt">llm</span> primary → ${v}`);
+}
+
+function refreshSettingsVisibility() {
+  const p = el.selLlmProvider.value;
+  el.rowAnthropic.style.display = (p === 'anthropic') ? '' : 'none';
+  const showAzure = (p === 'azure') || (el.selEmbeddingProvider.value === 'azure');
+  el.rowAzureKey.style.display = showAzure ? '' : 'none';
+  el.rowAzureResource.style.display = showAzure ? '' : 'none';
+  el.rowAzureChat.style.display = (p === 'azure') ? '' : 'none';
+  el.rowAzureEmbedding.style.display = (el.selEmbeddingProvider.value === 'azure') ? '' : 'none';
+  el.rowAzureVersion.style.display = showAzure ? '' : 'none';
+  // OpenAI only needed if embeddings go to OpenAI.
+  el.rowOpenai.style.display = (el.selEmbeddingProvider.value === 'openai') ? '' : 'none';
+}
+
+// Per-key [Save] buttons (wired generically via data-save-key)
+document.querySelectorAll('[data-save-key]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const configKey = btn.dataset.saveKey;
+    const inputId = btn.dataset.input;
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const value = input.value.trim();
+    if (!value) { log(`${configKey}: empty — nothing saved`); return; }
+    await api.configSet(configKey, value);
+    input.value = '';
+    input.placeholder = 'saved ✓';
+    log(`<span class="ok">saved</span> ${configKey}`);
+  });
+});
+
+// Per-key [Test] buttons (via data-test-provider)
+document.querySelectorAll('[data-test-provider]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const provider = btn.dataset.testProvider;
+    const collect = (btn.dataset.collectInputs || '').split(',').filter(Boolean);
+    const overrides = {};
+    for (const pair of collect) {
+      const [cfgKey, inputId] = pair.split(':');
+      const input = document.getElementById(inputId);
+      if (input && input.value.trim()) overrides[cfgKey] = input.value.trim();
+    }
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    const r = await api.keyTest(provider, overrides);
+    btn.disabled = false;
+    btn.textContent = 'Test';
+    const statusEl = {
+      anthropic: el.statusAnthropic,
+      openai: el.statusOpenai,
+      deepgram: el.statusDeepgram,
+    }[provider];
+    if (statusEl) setStatus(statusEl, r.ok ? 'ok' : (r.reason || 'err'));
+    log(r.ok ? `<span class="ok">${provider} test ok</span>` : `${provider} test failed: ${escapeHtml(r.reason || 'err')}${r.detail ? ` — ${escapeHtml(r.detail)}` : ''}`, r.ok ? '' : 'err');
+  });
+});
+
+// Azure: Save + Test chat + Test embedding
+el.btnSaveAzure.addEventListener('click', async () => {
+  const writes = [];
+  const pairs = [
+    ['AZURE_OPENAI_API_KEY', el.keyAzure],
+    ['AZURE_OPENAI_RESOURCE', el.keyAzureResource],
+    ['AZURE_OPENAI_CHAT_DEPLOYMENT', el.keyAzureChatDeployment],
+    ['AZURE_OPENAI_EMBEDDING_DEPLOYMENT', el.keyAzureEmbeddingDeployment],
+    ['AZURE_OPENAI_API_VERSION', el.keyAzureVersion],
+  ];
+  for (const [cfgKey, input] of pairs) {
+    if (input.value.trim()) writes.push(api.configSet(cfgKey, input.value.trim()));
+  }
+  await Promise.all(writes);
+  for (const [, input] of pairs) if (input.value) { input.value = ''; input.placeholder = 'saved ✓'; }
+  log(`<span class="ok">saved</span> Azure fields`);
+});
+
+async function testAzure(endpoint) {
+  const overrides = {
+    AZURE_OPENAI_API_KEY: el.keyAzure.value.trim() || undefined,
+    AZURE_OPENAI_RESOURCE: el.keyAzureResource.value.trim() || undefined,
+    AZURE_OPENAI_CHAT_DEPLOYMENT: el.keyAzureChatDeployment.value.trim() || undefined,
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: el.keyAzureEmbeddingDeployment.value.trim() || undefined,
+    AZURE_OPENAI_API_VERSION: el.keyAzureVersion.value.trim() || undefined,
+  };
+  // Strip undefined so main uses stored value as fallback.
+  for (const k of Object.keys(overrides)) if (overrides[k] === undefined) delete overrides[k];
+  const r = await api.keyTest(endpoint, overrides);
+  setStatus(el.statusAzure, r.ok ? 'ok' : (r.reason || 'err'));
+  log(r.ok ? `<span class="ok">azure ${endpoint} ok</span>` : `azure ${endpoint} failed: ${escapeHtml(r.reason || 'err')}${r.detail ? ` — ${escapeHtml(r.detail)}` : ''}`, r.ok ? '' : 'err');
+}
+el.btnTestAzureChat.addEventListener('click', () => testAzure('azure'));
+el.btnTestAzureEmbedding.addEventListener('click', () => testAzure('azure-embedding'));
+
 async function openSettings() {
   const all = await api.configGetAll();
-  el.keyAnthropic.value = '';
-  el.keyOpenai.value = '';
-  el.keyDeepgram.value = '';
+  el.selLlmProvider.value = all.llm_provider || 'anthropic';
+  el.selEmbeddingProvider.value = all.embedding_provider || 'openai';
+  // Password/text fields always start empty; placeholder shows saved mask.
+  [el.keyAnthropic, el.keyOpenai, el.keyDeepgram, el.keyAzure,
+   el.keyAzureResource, el.keyAzureChatDeployment, el.keyAzureEmbeddingDeployment, el.keyAzureVersion].forEach(i => { i.value = ''; });
   el.keyAnthropic.placeholder = all.ANTHROPIC_API_KEY || 'sk-ant-…';
   el.keyOpenai.placeholder = all.OPENAI_API_KEY || 'sk-…';
   el.keyDeepgram.placeholder = all.DEEPGRAM_API_KEY || 'token…';
+  el.keyAzure.placeholder = all.AZURE_OPENAI_API_KEY || 'saved — leave blank to keep';
+  el.keyAzureResource.placeholder = all.AZURE_OPENAI_RESOURCE || 'my-aoai-resource';
+  el.keyAzureChatDeployment.placeholder = all.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o';
+  el.keyAzureEmbeddingDeployment.placeholder = all.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small';
+  el.keyAzureVersion.placeholder = all.AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
+  refreshSettingsVisibility();
   el.settingsBackdrop.classList.add('open');
   probeAndRender();
 }
@@ -444,17 +611,6 @@ async function renderSessions() {
   });
 }
 
-async function saveSettings() {
-  const updates = [];
-  if (el.keyAnthropic.value) updates.push(api.configSet('ANTHROPIC_API_KEY', el.keyAnthropic.value));
-  if (el.keyOpenai.value) updates.push(api.configSet('OPENAI_API_KEY', el.keyOpenai.value));
-  if (el.keyDeepgram.value) updates.push(api.configSet('DEEPGRAM_API_KEY', el.keyDeepgram.value));
-  await Promise.all(updates);
-  await probeAndRender();
-  el.settingsBackdrop.classList.remove('open');
-  log(`<span class="ok">settings</span> saved`);
-}
-
 async function probeAndRender() {
   const r = await api.probeServices();
   renderHealthDot('mic', r.mic);
@@ -462,15 +618,15 @@ async function probeAndRender() {
   renderHealthDot('openai', r.openai);
   renderHealthDot('deepgram', r.deepgram);
   renderHealthDot('ollama', r.ollama);
-  el.statusMic.textContent = r.mic;
-  el.statusMic.className = 'status ' + (r.mic === 'granted' || r.mic === 'ok' ? 'ok' : r.mic === 'denied' ? 'err' : 'warn');
-  const set = (elStatus, v) => {
-    elStatus.textContent = v;
-    elStatus.className = 'status ' + (v === 'ok' ? 'ok' : v === 'missing' ? 'missing' : v.startsWith('err') ? 'err' : 'warn');
-  };
-  set(el.statusAnthropic, r.anthropic);
-  set(el.statusOpenai, r.openai);
-  set(el.statusDeepgram, r.deepgram);
+  renderHealthDot('azure', r.azure);
+  if (el.statusMic) {
+    el.statusMic.textContent = r.mic;
+    el.statusMic.className = 'status ' + (r.mic === 'granted' || r.mic === 'ok' ? 'ok' : r.mic === 'denied' ? 'err' : 'warn');
+  }
+  setStatus(el.statusAnthropic, r.anthropic);
+  setStatus(el.statusOpenai, r.openai);
+  setStatus(el.statusDeepgram, r.deepgram);
+  setStatus(el.statusAzure, r.azure);
 }
 
 // Spacebar override (force-draft or cancel in-flight) — only outside inputs
@@ -553,8 +709,11 @@ el.btnOnboardFinish.addEventListener('click', finishOnboarding);
     const ms = performance.now() - t0;
     log(`<span class="ok">boot</span> ready in ${Math.round(ms)}ms`);
 
-    // First-launch onboarding
+    // Apply saved LLM provider choice (defaults to anthropic).
     const cfg = await api.configGetAll();
+    applyLlmProvider(cfg.llm_provider || 'anthropic');
+
+    // First-launch onboarding
     if (!cfg.onboarding_complete) {
       showOnboardingStep(1);
       await updateOnboardStatus();
