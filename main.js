@@ -9,7 +9,7 @@
  * No business logic. Business logic lives in renderer modules.
  */
 
-const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore } = require('./src/config/config-store');
@@ -309,6 +309,69 @@ ipcMain.handle('profile:read', (_e, name) => {
   return { name, identity, role, voice, stories };
 });
 
+// ─── profile export / import (shared format, see SHARED/PROFILE.md) ────
+// The desktop stores profiles as file trees for easy editing; Android stores
+// them as a single JSON per profile. Export flattens to JSON (Android-shaped);
+// import splits JSON back into the file tree.
+ipcMain.handle('profile:export', async (_e, name) => {
+  const dir = profileDir(name);
+  if (!fs.existsSync(dir)) return { error: `no profile: ${name}` };
+  const safeRead = (p) => { try { return fs.readFileSync(p, 'utf-8'); } catch { return ''; } };
+  const bundle = {
+    name,
+    identity: safeRead(path.join(dir, 'identity.md')),
+    role: safeRead(path.join(dir, 'role.md')),
+    voiceSamples: safeRead(path.join(dir, 'voice-samples.md')),
+    stories: [],
+  };
+  const stDir = storiesDir(name);
+  if (fs.existsSync(stDir)) {
+    for (const f of fs.readdirSync(stDir).sort()) {
+      if (!f.endsWith('.md')) continue;
+      bundle.stories.push({ id: f.replace(/\.md$/, ''), content: safeRead(path.join(stDir, f)) });
+    }
+  }
+  // Write to a user-chosen path.
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `${name}.profile.json`,
+    filters: [{ name: 'Profile JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { cancelled: true };
+  try {
+    fs.writeFileSync(result.filePath, JSON.stringify(bundle, null, 2), 'utf-8');
+    return { path: result.filePath, storyCount: bundle.stories.length };
+  } catch (err) { return { error: err.message }; }
+});
+
+ipcMain.handle('profile:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Profile JSON', extensions: ['json'] }, { name: 'All', extensions: ['*'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+  const p = result.filePaths[0];
+  let bundle;
+  try { bundle = JSON.parse(fs.readFileSync(p, 'utf-8')); }
+  catch (err) { return { error: `bad json: ${err.message}` }; }
+  const rawName = (bundle.name || 'imported').toString().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 48) || 'imported';
+  const dir = profileDir(rawName);
+  fs.mkdirSync(path.join(dir, 'stories'), { recursive: true });
+  // Wipe existing stories for this profile (clean round-trip)
+  for (const f of fs.readdirSync(path.join(dir, 'stories'))) {
+    if (f.endsWith('.md')) fs.unlinkSync(path.join(dir, 'stories', f));
+  }
+  fs.writeFileSync(path.join(dir, 'identity.md'), bundle.identity || '');
+  fs.writeFileSync(path.join(dir, 'role.md'), bundle.role || '');
+  fs.writeFileSync(path.join(dir, 'voice-samples.md'), bundle.voiceSamples || '');
+  const stories = Array.isArray(bundle.stories) ? bundle.stories : [];
+  let i = 0;
+  for (const s of stories) {
+    const id = (s.id || `story-${i++}`).toString().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+    fs.writeFileSync(path.join(dir, 'stories', `${id}.md`), s.content || '');
+  }
+  return { name: rawName, storyCount: stories.length };
+});
+
 // ─── embeddings (OpenAI) ───────────────────────────────────────────────
 ipcMain.handle('embeddings:compute', async (_e, texts) => {
   const apiKey = readKey('OPENAI_API_KEY');
@@ -376,6 +439,58 @@ ipcMain.handle('session:load-latest', () => {
     if (files.length === 0) return null;
     return JSON.parse(fs.readFileSync(path.join(d, files[0].f), 'utf-8'));
   } catch { return null; }
+});
+
+ipcMain.handle('session:list', () => {
+  try {
+    const d = sessionsDir();
+    const files = fs.readdirSync(d).filter(f => f.endsWith('.json'));
+    return files.map(f => {
+      try {
+        const raw = JSON.parse(fs.readFileSync(path.join(d, f), 'utf-8'));
+        return {
+          file: f,
+          id: raw.id || f.replace(/\.json$/, ''),
+          startedAt: raw.startedAt || 0,
+          savedAt: raw.savedAt || 0,
+          profile: raw.profile || '',
+          source: raw.source || 'desktop',
+          historyCount: Array.isArray(raw.history) ? raw.history.length : 0,
+          notesCount: Array.isArray(raw.notes) ? raw.notes.length : 0,
+          transcriptChars: (raw.transcript || '').length,
+        };
+      } catch { return null; }
+    }).filter(Boolean).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  } catch { return []; }
+});
+
+ipcMain.handle('session:read', (_e, file) => {
+  try {
+    const safe = String(file).replace(/[^a-z0-9_.-]/gi, '_');
+    const full = path.join(sessionsDir(), safe);
+    if (!fs.existsSync(full)) return null;
+    return JSON.parse(fs.readFileSync(full, 'utf-8'));
+  } catch { return null; }
+});
+
+ipcMain.handle('session:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Session JSON', extensions: ['json'] }, { name: 'All', extensions: ['*'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+  const imported = [];
+  for (const p of result.filePaths) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      if (!raw.source) raw.source = 'android';
+      const id = (raw.id || `imp_${Date.now().toString(36)}`).toString().replace(/[^a-z0-9_-]/gi, '_');
+      const dest = path.join(sessionsDir(), `${id}.json`);
+      fs.writeFileSync(dest, JSON.stringify(raw), 'utf-8');
+      imported.push(id);
+    } catch (err) { /* skip bad file */ }
+  }
+  return { imported };
 });
 
 // ─── app lifecycle ─────────────────────────────────────────────────────

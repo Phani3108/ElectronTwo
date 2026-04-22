@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   // profile IO
   profileList: () => ipcRenderer.invoke('profile:list'),
   profileRead: (name) => ipcRenderer.invoke('profile:read', name),
+  profileExport: (name) => ipcRenderer.invoke('profile:export', name),
+  profileImport: () => ipcRenderer.invoke('profile:import'),
 
   // embeddings
   embeddingsCompute: (texts) => ipcRenderer.invoke('embeddings:compute', texts),
@@ -27,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   // session persistence
   sessionSave: (sessionId, payload) => ipcRenderer.invoke('session:save', sessionId, payload),
   sessionLoadLatest: () => ipcRenderer.invoke('session:load-latest'),
+  sessionList: () => ipcRenderer.invoke('session:list'),
+  sessionRead: (file) => ipcRenderer.invoke('session:read', file),
+  sessionImport: () => ipcRenderer.invoke('session:import'),
 
   // main-process events
   onProfileCycle: (cb) => ipcRenderer.on('profile:cycle', cb),

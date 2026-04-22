@@ -213,6 +213,7 @@
       <span class="spacer"></span>
       <span class="timings" id="timings"></span>
       <button id="btn-notes" title="Toggle notes">📝</button>
+      <button id="btn-sessions" title="Sessions history">📚</button>
       <button id="btn-settings" title="Settings">⚙</button>
       <button id="btn-start" class="primary">Mic</button>
       <button id="btn-stop">Stop</button>
@@ -269,9 +270,25 @@
           <div style="font-size:11px;color:var(--muted)">macOS System Settings → Privacy & Security → Microphone → this app</div>
         </div>
         <div class="settings-actions">
+          <button id="btn-profile-import">Import profile…</button>
+          <button id="btn-profile-export">Export active profile…</button>
+        </div>
+        <div class="settings-actions">
           <button id="btn-settings-test">Test all</button>
           <button id="btn-settings-save" class="primary">Save & close</button>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-backdrop" id="sessions-backdrop">
+      <div class="settings-modal" style="max-width:560px; max-height:80vh; overflow:hidden; display:flex; flex-direction:column;">
+        <h3>Sessions history</h3>
+        <div class="settings-actions" style="justify-content:space-between">
+          <button id="btn-session-import">Import phone session…</button>
+          <button id="btn-sessions-close" class="primary">Close</button>
+        </div>
+        <div id="sessions-list" style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:6px; padding:6px 8px;"></div>
+        <div id="session-detail" style="display:none; flex:1; overflow:auto; border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.5;"></div>
       </div>
     </div>
   </div>

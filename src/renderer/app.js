@@ -74,6 +74,8 @@ const el = {
   settingsBackdrop: document.getElementById('settings-backdrop'),
   btnSettingsTest: document.getElementById('btn-settings-test'),
   btnSettingsSave: document.getElementById('btn-settings-save'),
+  btnProfileExport: document.getElementById('btn-profile-export'),
+  btnProfileImport: document.getElementById('btn-profile-import'),
   keyAnthropic: document.getElementById('key-anthropic'),
   keyOpenai: document.getElementById('key-openai'),
   keyDeepgram: document.getElementById('key-deepgram'),
@@ -81,6 +83,13 @@ const el = {
   statusOpenai: document.getElementById('status-openai'),
   statusDeepgram: document.getElementById('status-deepgram'),
   statusMic: document.getElementById('status-mic'),
+  // sessions panel
+  btnSessions: document.getElementById('btn-sessions'),
+  sessionsBackdrop: document.getElementById('sessions-backdrop'),
+  sessionsList: document.getElementById('sessions-list'),
+  sessionDetail: document.getElementById('session-detail'),
+  btnSessionImport: document.getElementById('btn-session-import'),
+  btnSessionsClose: document.getElementById('btn-sessions-close'),
 };
 
 // ── state ──
@@ -332,6 +341,83 @@ async function openSettings() {
   el.keyDeepgram.placeholder = all.DEEPGRAM_API_KEY || 'token…';
   el.settingsBackdrop.classList.add('open');
   probeAndRender();
+}
+
+el.btnProfileExport.addEventListener('click', async () => {
+  const name = profiles.active?.name;
+  if (!name) { log('no active profile', 'err'); return; }
+  const r = await api.profileExport(name);
+  if (r?.error) log(`export failed: ${escapeHtml(r.error)}`, 'err');
+  else if (r?.cancelled) log('export cancelled');
+  else log(`<span class="ok">exported</span> ${name} · ${r.storyCount} stories → ${escapeHtml(r.path)}`);
+});
+el.btnProfileImport.addEventListener('click', async () => {
+  const r = await api.profileImport();
+  if (r?.error) { log(`import failed: ${escapeHtml(r.error)}`, 'err'); return; }
+  if (r?.cancelled) return;
+  log(`<span class="ok">imported</span> ${r.name} · ${r.storyCount} stories`);
+  // Re-initialize profile manager and RAG
+  await profiles.reload?.() || await profiles.initialize();
+});
+
+// Sessions panel
+el.btnSessions.addEventListener('click', openSessions);
+el.btnSessionsClose.addEventListener('click', () => el.sessionsBackdrop.classList.remove('open'));
+el.btnSessionImport.addEventListener('click', async () => {
+  const r = await api.sessionImport();
+  if (r?.imported?.length) log(`<span class="ok">imported</span> ${r.imported.length} session(s)`);
+  renderSessions();
+});
+el.sessionsBackdrop.addEventListener('click', (e) => {
+  if (e.target === el.sessionsBackdrop) el.sessionsBackdrop.classList.remove('open');
+});
+
+async function openSessions() {
+  el.sessionsBackdrop.classList.add('open');
+  renderSessions();
+}
+
+async function renderSessions() {
+  el.sessionDetail.style.display = 'none';
+  el.sessionsList.style.display = 'block';
+  const list = await api.sessionList();
+  if (!list?.length) {
+    el.sessionsList.innerHTML = `<div style="color:var(--muted); padding:20px; text-align:center">No sessions yet. Record a desktop session or import one from the phone.</div>`;
+    return;
+  }
+  el.sessionsList.innerHTML = list.map(s => {
+    const when = s.savedAt ? new Date(s.savedAt).toLocaleString() : '';
+    const badge = s.source === 'android' ? '📱' : '💻';
+    return `<div class="session-row" data-file="${escapeHtml(s.file)}" style="padding:8px 6px; border-bottom:1px solid var(--border); cursor:pointer;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span>${badge}</span>
+        <span style="flex:1; color:var(--fg);">${escapeHtml(s.profile || '(no profile)')}</span>
+        <span style="color:var(--muted); font-size:11px;">${escapeHtml(when)}</span>
+      </div>
+      <div style="color:var(--muted); font-size:11px; margin-top:2px;">${s.historyCount} Q&A · ${s.notesCount} notes · ${s.transcriptChars} chars transcript</div>
+    </div>`;
+  }).join('');
+  el.sessionsList.querySelectorAll('.session-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const file = row.dataset.file;
+      const s = await api.sessionRead(file);
+      if (!s) return;
+      const turns = (s.history || []).map(h => `<div style="margin-bottom:10px;"><div style="color:var(--accent); font-size:11px;">${escapeHtml(h.mode || 'desktop')} · ${escapeHtml(new Date(h.ts || 0).toLocaleTimeString())}</div><div><b>Q:</b> ${escapeHtml(h.q || '')}</div><div><b>A:</b> ${escapeHtml(h.a || '')}</div></div>`).join('');
+      const notes = (s.notes || []).map(n => `<div style="color:var(--warn);">- ${escapeHtml(n.text || '')}</div>`).join('');
+      el.sessionDetail.innerHTML = `
+        <div style="margin-bottom:10px;"><button id="btn-session-back">← back</button></div>
+        <div><b>Profile:</b> ${escapeHtml(s.profile || '')}</div>
+        <div><b>Source:</b> ${escapeHtml(s.source || 'desktop')}</div>
+        <div><b>Saved:</b> ${escapeHtml(s.savedAt ? new Date(s.savedAt).toLocaleString() : '')}</div>
+        ${notes ? `<div style="margin-top:10px;"><b>Notes</b></div>${notes}` : ''}
+        <div style="margin-top:10px;"><b>Turns</b></div>${turns || '<em style="color:var(--muted);">(no Q&A captured)</em>'}
+        <div style="margin-top:10px;"><b>Transcript</b></div><div style="white-space:pre-wrap; color:var(--muted);">${escapeHtml(s.transcript || '')}</div>
+      `;
+      el.sessionsList.style.display = 'none';
+      el.sessionDetail.style.display = 'block';
+      document.getElementById('btn-session-back').addEventListener('click', renderSessions);
+    });
+  });
 }
 
 async function saveSettings() {
