@@ -90,6 +90,30 @@ const el = {
   sessionDetail: document.getElementById('session-detail'),
   btnSessionImport: document.getElementById('btn-session-import'),
   btnSessionsClose: document.getElementById('btn-sessions-close'),
+  // onboarding
+  onboardBackdrop: document.getElementById('onboarding-backdrop'),
+  onboardStep1: document.getElementById('onboarding-step-1'),
+  onboardStep2: document.getElementById('onboarding-step-2'),
+  onboardStep3: document.getElementById('onboarding-step-3'),
+  onboardIndicator1: document.getElementById('step-indicator-1'),
+  onboardIndicator2: document.getElementById('step-indicator-2'),
+  onboardIndicator3: document.getElementById('step-indicator-3'),
+  onboardMicStatus: document.getElementById('onboard-mic-status'),
+  onboardStatusAnthropic: document.getElementById('onboard-status-anthropic'),
+  onboardStatusOpenai: document.getElementById('onboard-status-openai'),
+  onboardStatusDeepgram: document.getElementById('onboard-status-deepgram'),
+  onboardKeyAnthropic: document.getElementById('onboard-key-anthropic'),
+  onboardKeyOpenai: document.getElementById('onboard-key-openai'),
+  onboardKeyDeepgram: document.getElementById('onboard-key-deepgram'),
+  btnOnboardSkip: document.getElementById('btn-onboard-skip'),
+  btnOnboardNext1: document.getElementById('btn-onboard-next-1'),
+  btnOnboardBack2: document.getElementById('btn-onboard-back-2'),
+  btnOnboardTest2: document.getElementById('btn-onboard-test-2'),
+  btnOnboardNext2: document.getElementById('btn-onboard-next-2'),
+  btnOnboardBack3: document.getElementById('btn-onboard-back-3'),
+  btnOnboardFinish: document.getElementById('btn-onboard-finish'),
+  btnOnboardImportProfile: document.getElementById('btn-onboard-import-profile'),
+  btnOnboardOpenProfileDir: document.getElementById('btn-onboard-open-profile-dir'),
 };
 
 // ── state ──
@@ -465,6 +489,58 @@ document.addEventListener('keydown', (e) => {
 
 window.addEventListener('beforeunload', () => pipeline.dispose());
 
+// ── onboarding ──
+function showOnboardingStep(n) {
+  [el.onboardStep1, el.onboardStep2, el.onboardStep3].forEach((s, i) => s.style.display = (i + 1 === n) ? 'block' : 'none');
+  el.onboardIndicator1.style.background = n >= 1 ? 'var(--accent)' : 'var(--border)';
+  el.onboardIndicator2.style.background = n >= 2 ? 'var(--accent)' : 'var(--border)';
+  el.onboardIndicator3.style.background = n >= 3 ? 'var(--accent)' : 'var(--border)';
+}
+
+async function updateOnboardStatus() {
+  const r = await api.probeServices();
+  const setStat = (es, v) => {
+    es.textContent = v;
+    es.className = 'status ' + (v === 'ok' ? 'ok' : (v === 'missing' ? 'missing' : (typeof v === 'string' && v.startsWith('err') ? 'err' : 'warn')));
+  };
+  el.onboardMicStatus.textContent = r.mic;
+  el.onboardMicStatus.className = 'status ' + (r.mic === 'granted' || r.mic === 'ok' ? 'ok' : r.mic === 'denied' ? 'err' : 'warn');
+  setStat(el.onboardStatusAnthropic, r.anthropic);
+  setStat(el.onboardStatusOpenai, r.openai);
+  setStat(el.onboardStatusDeepgram, r.deepgram);
+}
+
+async function saveOnboardingKeys() {
+  const writes = [];
+  if (el.onboardKeyAnthropic.value) writes.push(api.configSet('ANTHROPIC_API_KEY', el.onboardKeyAnthropic.value));
+  if (el.onboardKeyOpenai.value) writes.push(api.configSet('OPENAI_API_KEY', el.onboardKeyOpenai.value));
+  if (el.onboardKeyDeepgram.value) writes.push(api.configSet('DEEPGRAM_API_KEY', el.onboardKeyDeepgram.value));
+  await Promise.all(writes);
+}
+
+async function finishOnboarding() {
+  await api.configSet('onboarding_complete', true);
+  el.onboardBackdrop.classList.remove('open');
+  await probeAndRender();
+}
+
+el.btnOnboardSkip.addEventListener('click', finishOnboarding);
+el.btnOnboardNext1.addEventListener('click', () => { showOnboardingStep(2); updateOnboardStatus(); });
+el.btnOnboardBack2.addEventListener('click', () => showOnboardingStep(1));
+el.btnOnboardTest2.addEventListener('click', async () => { await saveOnboardingKeys(); await updateOnboardStatus(); });
+el.btnOnboardNext2.addEventListener('click', async () => { await saveOnboardingKeys(); showOnboardingStep(3); });
+el.btnOnboardBack3.addEventListener('click', () => showOnboardingStep(2));
+el.btnOnboardImportProfile.addEventListener('click', async () => {
+  const r = await api.profileImport();
+  if (r?.name) log(`<span class="ok">imported</span> ${r.name}`);
+  if (profiles.reload) await profiles.reload(); else await profiles.initialize();
+});
+el.btnOnboardOpenProfileDir.addEventListener('click', async () => {
+  const root = await api.profilesRoot();
+  await api.openPath(root);
+});
+el.btnOnboardFinish.addEventListener('click', finishOnboarding);
+
 // ── boot ──
 (async () => {
   try {
@@ -476,6 +552,14 @@ window.addEventListener('beforeunload', () => pipeline.dispose());
     await probePromise;
     const ms = performance.now() - t0;
     log(`<span class="ok">boot</span> ready in ${Math.round(ms)}ms`);
+
+    // First-launch onboarding
+    const cfg = await api.configGetAll();
+    if (!cfg.onboarding_complete) {
+      showOnboardingStep(1);
+      await updateOnboardStatus();
+      el.onboardBackdrop.classList.add('open');
+    }
   } catch (err) {
     log(`boot failed: ${escapeHtml(err.message)}`, 'err');
   }

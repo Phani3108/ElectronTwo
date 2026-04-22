@@ -179,14 +179,14 @@ Two products that share an orchestrator:
 | Phase | Scope | Days | Cumulative |
 |---|---|---|---|
 | 0 | Foundation | done | — |
-| 1 | Desktop orchestrator | 5 | Day 5 |
-| 2 | Desktop UX | 5 | Day 10 |
-| 3 | Desktop hardening | 3 | Day 13 |
-| 4 | Mobile spike (gate) | 2 | Day 15 |
-| 5 | Android Rescue | 5 | Day 20 |
-| 6 | Android Cue + Shadow | 5 | Day 25 |
-| 7 | Consolidation | 5 | Day 30 |
-| 8 | Launch | 3 | Day 33 |
+| 1 | Desktop orchestrator | done | Day 5 |
+| 2 | Desktop UX | done | Day 10 |
+| 3 | Desktop hardening | done | Day 13 |
+| 4 | Mobile spike (gate) | done | Day 15 |
+| 5 | Android Rescue | done | Day 20 |
+| 6 | Android Cue + Shadow | done | Day 25 |
+| 7 | Consolidation | done | Day 30 |
+| 8 | Launch | done | Day 33 |
 
 **Total: 33 working days (~8 calendar weeks with 20% buffer).**
 
@@ -233,4 +233,5 @@ Two products that share an orchestrator:
 - **Phase 5**: Rescue mode on Android — dual-speaker STT (Deepgram × 2), conversation tracker, pause detector (1.2s), atomic-story RAG + embeddings ported from desktop, Anthropic Haiku cue generator, Android built-in TTS to earbud, floating overlay (SYSTEM_ALERT_WINDOW), mode picker + profile import. Shadow + Rescue coexist.
 - **Phase 6**: Cue mode + mid-call mode switching + adaptive pacing + first-launch bleed test. Refactored to ModeHandler architecture (Rescue/Cue/Shadow as peer handlers sharing a capture layer). ACTION_SWITCH_MODE swaps handlers <1s without tearing down MediaProjection. CueBeatsGenerator emits "Zeta · 17 agents · senior pushback" style anchors for the user to expand. SpeechPacer tracks user WPM and adjusts TTS rate. Bleed verdict persisted in SharedPreferences; warning banner surfaces non-CLEAN results.
 - **Phase 7**: Cross-device consolidation. SHARED/PROFILE.md defines canonical JSON profile schema + behavior spec (4-tier cache_control prompt assembly, RAG contract). Desktop `profile:export` / `profile:import` IPC round-trips between file-tree and single-JSON shapes. Android `SessionWriter` persists rescue/cue turns + transcripts in desktop-compatible JSON shape. Android "Share last session" uses FileProvider + ACTION_SEND. Desktop sessions viewer panel lists + imports phone sessions (android/desktop badges, Q&A + notes + transcript view).
+- **Phase 8**: Launch prep. Desktop 3-step onboarding modal (permissions → API keys → profile) gated on `onboarding_complete` config flag. Android OnboardingActivity as launcher, short-circuits to MainActivity after first run. Android release signing config in `app/build.gradle.kts` driven by `local.properties` (RELEASE_KEYSTORE etc.); keystore generation documented. Desktop `.dmg` via `npm run dist` (electron-builder config from Phase 3 remains). One-page USER_GUIDE.md per product.
 - Future entries go here. Any change to scope, acceptance, or timeline gets a dated line.

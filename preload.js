@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('api', {
   // health pre-flight
   probeServices: () => ipcRenderer.invoke('services:probe'),
 
+  // paths + shell
+  profilesRoot: () => ipcRenderer.invoke('profiles:root'),
+  openPath: (target) => ipcRenderer.invoke('open-path', target),
+
   // profile IO
   profileList: () => ipcRenderer.invoke('profile:list'),
   profileRead: (name) => ipcRenderer.invoke('profile:read', name),

@@ -9,7 +9,7 @@
  * No business logic. Business logic lives in renderer modules.
  */
 
-const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore } = require('./src/config/config-store');
@@ -282,6 +282,14 @@ Team stabilized in 6 weeks. Backfill was a better fit. I wrote up the postmortem
 Owning the mistake fast is cheaper than protecting the hire. And the loop is a signal detector, not a guarantee — I learned to weight collaboration signals over technical depth when they conflicted.
 `);
 }
+
+ipcMain.handle('profiles:root', () => profilesRoot());
+
+ipcMain.handle('open-path', (_e, target) => {
+  if (!target) return false;
+  shell.openPath(target);
+  return true;
+});
 
 ipcMain.handle('profile:list', () => {
   const root = profilesRoot();
