@@ -129,6 +129,13 @@ const el = {
   sessionDetail: document.getElementById('session-detail'),
   btnSessionImport: document.getElementById('btn-session-import'),
   btnSessionsClose: document.getElementById('btn-sessions-close'),
+  // stories panel (profile contents browser)
+  btnStories: document.getElementById('btn-stories'),
+  storiesBackdrop: document.getElementById('stories-backdrop'),
+  storiesList: document.getElementById('stories-list'),
+  storiesSearch: document.getElementById('stories-search'),
+  storiesCount: document.getElementById('stories-count'),
+  btnStoriesClose: document.getElementById('btn-stories-close'),
   // onboarding
   onboardBackdrop: document.getElementById('onboarding-backdrop'),
   onboardStep1: document.getElementById('onboarding-step-1'),
@@ -518,17 +525,21 @@ async function openSettings() {
   const all = await api.configGetAll();
   el.selLlmProvider.value = all.llm_provider || 'anthropic';
   el.selEmbeddingProvider.value = all.embedding_provider || 'openai';
-  // Password/text fields always start empty; placeholder shows saved mask.
-  [el.keyAnthropic, el.keyOpenai, el.keyDeepgram, el.keyAzure,
-   el.keyAzureResource, el.keyAzureChatDeployment, el.keyAzureEmbeddingDeployment, el.keyAzureVersion].forEach(i => { i.value = ''; });
+  // Sensitive (API keys): clear input, show masked saved value as placeholder.
+  // Non-sensitive (resource, deployments, version): pre-fill input so user sees the saved value.
+  [el.keyAnthropic, el.keyOpenai, el.keyDeepgram, el.keyAzure].forEach(i => { i.value = ''; });
   el.keyAnthropic.placeholder = all.ANTHROPIC_API_KEY || 'sk-ant-…';
   el.keyOpenai.placeholder = all.OPENAI_API_KEY || 'sk-…';
   el.keyDeepgram.placeholder = all.DEEPGRAM_API_KEY || 'token…';
   el.keyAzure.placeholder = all.AZURE_OPENAI_API_KEY || 'saved — leave blank to keep';
-  el.keyAzureResource.placeholder = all.AZURE_OPENAI_RESOURCE || 'my-aoai-resource';
-  el.keyAzureChatDeployment.placeholder = all.AZURE_OPENAI_CHAT_DEPLOYMENT || 'gpt-4o';
-  el.keyAzureEmbeddingDeployment.placeholder = all.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small';
-  el.keyAzureVersion.placeholder = all.AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
+  el.keyAzureResource.value = all.AZURE_OPENAI_RESOURCE || '';
+  el.keyAzureResource.placeholder = 'my-aoai-resource';
+  el.keyAzureChatDeployment.value = all.AZURE_OPENAI_CHAT_DEPLOYMENT || '';
+  el.keyAzureChatDeployment.placeholder = 'gpt-4o';
+  el.keyAzureEmbeddingDeployment.value = all.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || '';
+  el.keyAzureEmbeddingDeployment.placeholder = 'text-embedding-3-small';
+  el.keyAzureVersion.value = all.AZURE_OPENAI_API_VERSION || '';
+  el.keyAzureVersion.placeholder = '2024-08-01-preview';
   refreshSettingsVisibility();
   el.settingsBackdrop.classList.add('open');
   probeAndRender();
@@ -549,6 +560,53 @@ el.btnProfileImport.addEventListener('click', async () => {
   log(`<span class="ok">imported</span> ${r.name} · ${r.storyCount} stories`);
   // Re-initialize profile manager and RAG
   await profiles.reload?.() || await profiles.initialize();
+});
+
+// Stories (profile contents) panel
+el.btnStories.addEventListener('click', openStories);
+el.btnStoriesClose.addEventListener('click', () => el.storiesBackdrop.classList.remove('open'));
+el.storiesBackdrop.addEventListener('click', (e) => {
+  if (e.target === el.storiesBackdrop) el.storiesBackdrop.classList.remove('open');
+});
+el.storiesSearch.addEventListener('input', () => renderStories(el.storiesSearch.value));
+
+function openStories() {
+  el.storiesBackdrop.classList.add('open');
+  el.storiesSearch.value = '';
+  renderStories('');
+}
+
+function renderStories(filterStr) {
+  const profile = profiles.active;
+  if (!profile) {
+    el.storiesList.innerHTML = `<div style="color:var(--muted); padding:20px; text-align:center">No active profile.</div>`;
+    el.storiesCount.textContent = '';
+    return;
+  }
+  const q = (filterStr || '').toLowerCase().trim();
+  const stories = profile.stories.filter(s =>
+    !q || s.id.toLowerCase().includes(q) || s.content.toLowerCase().includes(q)
+  );
+  el.storiesCount.textContent = `${stories.length} of ${profile.stories.length} · profile: ${profile.name}`;
+  if (stories.length === 0) {
+    el.storiesList.innerHTML = `<div style="color:var(--muted); padding:20px; text-align:center">No stories match "${escapeHtml(q)}".</div>`;
+    return;
+  }
+  el.storiesList.innerHTML = stories.map(s => {
+    const preview = s.content.replace(/\*\*[^*]+\*\*/g, '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    return `<details style="border-bottom:1px solid var(--border); padding:8px 4px;">
+      <summary style="cursor:pointer; outline:none;">
+        <span style="color:var(--accent); font-family:ui-monospace,Menlo,monospace; font-size:11px;">${escapeHtml(s.id)}</span>
+        <div style="color:var(--muted); font-size:11px; margin-top:2px; padding-left:0;">${escapeHtml(preview)}…</div>
+      </summary>
+      <div style="margin-top:8px; padding:8px 10px; background:rgba(255,255,255,0.03); border-radius:6px; white-space:pre-wrap; font-size:12px; line-height:1.55;">${escapeHtml(s.content)}</div>
+    </details>`;
+  }).join('');
+}
+
+bus.on('profile:changed', () => {
+  // Refresh stories list if it's open
+  if (el.storiesBackdrop.classList.contains('open')) renderStories(el.storiesSearch.value);
 });
 
 // Sessions panel

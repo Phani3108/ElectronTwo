@@ -218,6 +218,7 @@
       <span class="spacer"></span>
       <span class="timings" id="timings"></span>
       <button id="btn-notes" title="Toggle notes">📝</button>
+      <button id="btn-stories" title="Profile contents — browse all loaded stories">📖</button>
       <button id="btn-sessions" title="Sessions history">📚</button>
       <button id="btn-settings" title="Settings">⚙</button>
       <button id="btn-start" class="primary">Mic</button>
@@ -399,6 +400,18 @@
             <button id="btn-onboard-finish" class="primary">Done</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-backdrop" id="stories-backdrop">
+      <div class="settings-modal" style="max-width:640px; max-height:88vh; overflow:hidden; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <h3 style="margin:0; flex:1;">Profile contents</h3>
+          <span id="stories-count" style="font-size:11px; color:var(--muted);"></span>
+          <button id="btn-stories-close" class="primary">Close</button>
+        </div>
+        <input id="stories-search" type="text" placeholder="search stories…" style="background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:5px; padding:6px 8px; color:var(--fg); font:inherit;" />
+        <div id="stories-list" style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:6px; padding:6px 8px;"></div>
       </div>
     </div>
 
