@@ -9,7 +9,7 @@
  * No business logic. Business logic lives in renderer modules.
  */
 
-const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore } = require('./src/config/config-store');
@@ -39,7 +39,7 @@ function createWindow() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: false,        // keep app visible in the dock so user can manage it
     resizable: true,
     hasShadow: false,
     webPreferences: {
@@ -49,6 +49,8 @@ function createWindow() {
     },
   });
 
+  // Invisible to *screen share* (the real stealth need); dock visibility is
+  // a separate concern and is now ON so the user can right-click → Quit.
   mainWindow.setContentProtection(true);
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -57,9 +59,51 @@ function createWindow() {
 
   if (!app.isPackaged) mainWindow.webContents.openDevTools({ mode: 'detach' });
 
+  // Closing the window hides it (so cmd+W doesn't kill the app mid-call) — but
+  // Cmd+Q / Quit menu / explicit Quit button properly terminate via app.quit().
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); mainWindow.hide(); isVisible = false; }
   });
+}
+
+// Application menu — required so Cmd+Q works on macOS without a custom menu fight.
+function buildApplicationMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { label: 'Quit ElectronTwo', accelerator: 'Cmd+Q', click: () => { app.isQuitting = true; app.quit(); } },
+      ],
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Show / Hide Window', accelerator: 'Cmd+Shift+H', click: () => {
+            if (!mainWindow) return;
+            if (isVisible) { mainWindow.hide(); isVisible = false; }
+            else { mainWindow.show(); isVisible = true; }
+          } },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 app.whenReady().then(async () => {
@@ -75,6 +119,7 @@ app.whenReady().then(async () => {
 
   ensureDefaultProfile();
 
+  buildApplicationMenu();
   createWindow();
 
   globalShortcut.register('CommandOrControl+Shift+H', () => {
@@ -625,6 +670,13 @@ ipcMain.handle('session:import', async () => {
 });
 
 // ─── app lifecycle ─────────────────────────────────────────────────────
+ipcMain.handle('app:quit', () => {
+  app.isQuitting = true;
+  app.quit();
+});
+
 app.on('before-quit', () => { app.isQuitting = true; });
 app.on('will-quit', () => { globalShortcut.unregisterAll(); });
+// On macOS, default Electron behavior keeps the app alive after window close.
+// Users can re-open via dock; explicit Quit (menu / Cmd+Q / our Quit button) terminates.
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

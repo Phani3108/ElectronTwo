@@ -78,6 +78,7 @@ const el = {
   btnSettings: document.getElementById('btn-settings'),
   start: document.getElementById('btn-start'),
   stop: document.getElementById('btn-stop'),
+  btnQuit: document.getElementById('btn-quit'),
   transcript: document.getElementById('transcript'),
   intentStrip: document.getElementById('intent-strip'),
   answer: document.getElementById('answer'),
@@ -172,6 +173,13 @@ let lastRetrieved = [];
 
 // ── helpers ──
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/** Safe addEventListener — never throws if target is null.
+ * One missing element won't kill the whole init chain. */
+function on(target, evt, handler) {
+  if (!target) { console.warn('listener skipped — element missing for', evt); return; }
+  target.addEventListener(evt, handler);
+}
 
 function renderTranscript() {
   el.transcript.innerHTML = escapeHtml(finalText) +
@@ -348,8 +356,24 @@ bus.on('session:resumed', ({ id, history, notes: n }) => {
 });
 
 // ── button / input handlers ──
-el.start.addEventListener('click', () => pipeline.start().catch(err => log(`start threw: ${err.message}`, 'err')));
-el.stop.addEventListener('click', () => pipeline.stop());
+on(el.start, 'click', () => pipeline.start().catch(err => log(`start threw: ${err.message}`, 'err')));
+
+// Stop: tear down audio + cancel any in-flight LLM + cancel pending auto-draft.
+// Previously only stopped audio, leaving the LLM streaming and the drafter armed.
+on(el.stop, 'click', () => {
+  try { pipeline.stop(); } catch (err) { log(`pipeline.stop threw: ${err.message}`, 'err'); }
+  try { orchestrator.cancel(); } catch (err) { log(`orchestrator.cancel threw: ${err.message}`, 'err'); }
+  try { drafter.clearBuffer(); drafter.setEnabled(false); } catch (err) { log(`drafter clear threw: ${err.message}`, 'err'); }
+  log(`<span class="ok">stop</span> all`);
+});
+
+// Quit: terminates the app (also reachable via Cmd+Q + menu).
+on(el.btnQuit, 'click', async () => {
+  if (!confirm('Quit ElectronTwo? Any in-flight call will end.')) return;
+  try { pipeline.dispose(); } catch {}
+  try { orchestrator.cancel(); } catch {}
+  await api.quit();
+});
 
 function submitQuestion() {
   const q = el.askInput.value.trim();
@@ -357,20 +381,20 @@ function submitQuestion() {
   el.askInput.value = '';
   orchestrator.ask(q);
 }
-el.btnAsk.addEventListener('click', submitQuestion);
-el.askInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQuestion(); });
+on(el.btnAsk, 'click', submitQuestion);
+on(el.askInput, 'keydown', (e) => { if (e.key === 'Enter') submitQuestion(); });
 
-el.profileLabel.addEventListener('click', () => {
+on(el.profileLabel, 'click', () => {
   profiles.cycle().catch(err => log(`cycle failed: ${err.message}`, 'err'));
 });
 api.onProfileCycle(() => {
   profiles.cycle().catch(err => log(`cycle failed: ${err.message}`, 'err'));
 });
 
-el.modeChip.addEventListener('click', () => drafter.setEnabled(!drafter.enabled));
+on(el.modeChip, 'click', () => drafter.setEnabled(!drafter.enabled));
 
 let offline = false;
-el.offlineChip.addEventListener('click', () => {
+on(el.offlineChip, 'click', () => {
   offline = !offline;
   el.offlineChip.classList.toggle('on', offline);
   el.offlineChip.textContent = offline ? 'offline' : 'online';
@@ -379,16 +403,16 @@ el.offlineChip.addEventListener('click', () => {
 });
 
 // Notes
-el.btnNotes.addEventListener('click', () => el.notesPanel.classList.toggle('open'));
+on(el.btnNotes, 'click', () => el.notesPanel.classList.toggle('open'));
 function submitNote() {
   const t = el.notesInput.value.trim();
   if (!t) return;
   notes.add(t);
   el.notesInput.value = '';
 }
-el.btnNotesAdd.addEventListener('click', submitNote);
-el.notesInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitNote(); });
-el.notesList.addEventListener('click', (e) => {
+on(el.btnNotesAdd, 'click', submitNote);
+on(el.notesInput, 'keydown', (e) => { if (e.key === 'Enter') submitNote(); });
+on(el.notesList, 'click', (e) => {
   const rm = e.target.closest('.rm');
   if (rm) notes.remove(rm.dataset.id);
 });
@@ -405,21 +429,21 @@ function setStatus(elStatus, state, detail) {
   elStatus.className = 'status ' + cls;
 }
 
-el.btnSettings.addEventListener('click', openSettings);
-el.btnSettingsSave.addEventListener('click', () => el.settingsBackdrop.classList.remove('open'));
-el.btnSettingsTest.addEventListener('click', probeAndRender);
-el.settingsBackdrop.addEventListener('click', (e) => {
+on(el.btnSettings, 'click', openSettings);
+on(el.btnSettingsSave, 'click', () => el.settingsBackdrop.classList.remove('open'));
+on(el.btnSettingsTest, 'click', probeAndRender);
+on(el.settingsBackdrop, 'click', (e) => {
   if (e.target === el.settingsBackdrop) el.settingsBackdrop.classList.remove('open');
 });
 
 // LLM provider picker — saves to config and rewires orchestrator.
-el.selLlmProvider.addEventListener('change', async () => {
+on(el.selLlmProvider, 'change', async () => {
   const v = el.selLlmProvider.value;
   await api.configSet('llm_provider', v);
   applyLlmProvider(v);
   refreshSettingsVisibility();
 });
-el.selEmbeddingProvider.addEventListener('change', async () => {
+on(el.selEmbeddingProvider, 'change', async () => {
   await api.configSet('embedding_provider', el.selEmbeddingProvider.value);
   refreshSettingsVisibility();
 });
@@ -487,7 +511,7 @@ document.querySelectorAll('[data-test-provider]').forEach(btn => {
 });
 
 // Azure: Save + Test chat + Test embedding
-el.btnSaveAzure.addEventListener('click', async () => {
+on(el.btnSaveAzure, 'click', async () => {
   const writes = [];
   const pairs = [
     ['AZURE_OPENAI_API_KEY', el.keyAzure],
@@ -518,8 +542,8 @@ async function testAzure(endpoint) {
   setStatus(el.statusAzure, r.ok ? 'ok' : (r.reason || 'err'));
   log(r.ok ? `<span class="ok">azure ${endpoint} ok</span>` : `azure ${endpoint} failed: ${escapeHtml(r.reason || 'err')}${r.detail ? ` — ${escapeHtml(r.detail)}` : ''}`, r.ok ? '' : 'err');
 }
-el.btnTestAzureChat.addEventListener('click', () => testAzure('azure'));
-el.btnTestAzureEmbedding.addEventListener('click', () => testAzure('azure-embedding'));
+on(el.btnTestAzureChat, 'click', () => testAzure('azure'));
+on(el.btnTestAzureEmbedding, 'click', () => testAzure('azure-embedding'));
 
 async function openSettings() {
   const all = await api.configGetAll();
@@ -545,7 +569,7 @@ async function openSettings() {
   probeAndRender();
 }
 
-el.btnProfileExport.addEventListener('click', async () => {
+on(el.btnProfileExport, 'click', async () => {
   const name = profiles.active?.name;
   if (!name) { log('no active profile', 'err'); return; }
   const r = await api.profileExport(name);
@@ -553,7 +577,7 @@ el.btnProfileExport.addEventListener('click', async () => {
   else if (r?.cancelled) log('export cancelled');
   else log(`<span class="ok">exported</span> ${name} · ${r.storyCount} stories → ${escapeHtml(r.path)}`);
 });
-el.btnProfileImport.addEventListener('click', async () => {
+on(el.btnProfileImport, 'click', async () => {
   const r = await api.profileImport();
   if (r?.error) { log(`import failed: ${escapeHtml(r.error)}`, 'err'); return; }
   if (r?.cancelled) return;
@@ -563,12 +587,12 @@ el.btnProfileImport.addEventListener('click', async () => {
 });
 
 // Stories (profile contents) panel
-el.btnStories.addEventListener('click', openStories);
-el.btnStoriesClose.addEventListener('click', () => el.storiesBackdrop.classList.remove('open'));
-el.storiesBackdrop.addEventListener('click', (e) => {
+on(el.btnStories, 'click', openStories);
+on(el.btnStoriesClose, 'click', () => el.storiesBackdrop.classList.remove('open'));
+on(el.storiesBackdrop, 'click', (e) => {
   if (e.target === el.storiesBackdrop) el.storiesBackdrop.classList.remove('open');
 });
-el.storiesSearch.addEventListener('input', () => renderStories(el.storiesSearch.value));
+on(el.storiesSearch, 'input', () => renderStories(el.storiesSearch.value));
 
 function openStories() {
   el.storiesBackdrop.classList.add('open');
@@ -610,14 +634,14 @@ bus.on('profile:changed', () => {
 });
 
 // Sessions panel
-el.btnSessions.addEventListener('click', openSessions);
-el.btnSessionsClose.addEventListener('click', () => el.sessionsBackdrop.classList.remove('open'));
-el.btnSessionImport.addEventListener('click', async () => {
+on(el.btnSessions, 'click', openSessions);
+on(el.btnSessionsClose, 'click', () => el.sessionsBackdrop.classList.remove('open'));
+on(el.btnSessionImport, 'click', async () => {
   const r = await api.sessionImport();
   if (r?.imported?.length) log(`<span class="ok">imported</span> ${r.imported.length} session(s)`);
   renderSessions();
 });
-el.sessionsBackdrop.addEventListener('click', (e) => {
+on(el.sessionsBackdrop, 'click', (e) => {
   if (e.target === el.sessionsBackdrop) el.sessionsBackdrop.classList.remove('open');
 });
 
@@ -738,22 +762,22 @@ async function finishOnboarding() {
   await probeAndRender();
 }
 
-el.btnOnboardSkip.addEventListener('click', finishOnboarding);
-el.btnOnboardNext1.addEventListener('click', () => { showOnboardingStep(2); updateOnboardStatus(); });
-el.btnOnboardBack2.addEventListener('click', () => showOnboardingStep(1));
-el.btnOnboardTest2.addEventListener('click', async () => { await saveOnboardingKeys(); await updateOnboardStatus(); });
-el.btnOnboardNext2.addEventListener('click', async () => { await saveOnboardingKeys(); showOnboardingStep(3); });
-el.btnOnboardBack3.addEventListener('click', () => showOnboardingStep(2));
-el.btnOnboardImportProfile.addEventListener('click', async () => {
+on(el.btnOnboardSkip, 'click', finishOnboarding);
+on(el.btnOnboardNext1, 'click', () => { showOnboardingStep(2); updateOnboardStatus(); });
+on(el.btnOnboardBack2, 'click', () => showOnboardingStep(1));
+on(el.btnOnboardTest2, 'click', async () => { await saveOnboardingKeys(); await updateOnboardStatus(); });
+on(el.btnOnboardNext2, 'click', async () => { await saveOnboardingKeys(); showOnboardingStep(3); });
+on(el.btnOnboardBack3, 'click', () => showOnboardingStep(2));
+on(el.btnOnboardImportProfile, 'click', async () => {
   const r = await api.profileImport();
   if (r?.name) log(`<span class="ok">imported</span> ${r.name}`);
   if (profiles.reload) await profiles.reload(); else await profiles.initialize();
 });
-el.btnOnboardOpenProfileDir.addEventListener('click', async () => {
+on(el.btnOnboardOpenProfileDir, 'click', async () => {
   const root = await api.profilesRoot();
   await api.openPath(root);
 });
-el.btnOnboardFinish.addEventListener('click', finishOnboarding);
+on(el.btnOnboardFinish, 'click', finishOnboarding);
 
 // ── boot ──
 (async () => {

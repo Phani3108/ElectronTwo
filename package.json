@@ -44,8 +44,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "ElectronTwo listens to your meeting audio to transcribe questions.",
-        "NSCameraUsageDescription": "Not used.",
-        "LSUIElement": true
+        "NSCameraUsageDescription": "Not used."
       }
     },
     "dmg": {

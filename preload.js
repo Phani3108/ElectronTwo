@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('api', {
   // the user just typed before saving.
   keyTest: (provider, overrides) => ipcRenderer.invoke('key:test', provider, overrides),
 
+  // app lifecycle
+  quit: () => ipcRenderer.invoke('app:quit'),
+
   // paths + shell
   profilesRoot: () => ipcRenderer.invoke('profiles:root'),
   openPath: (target) => ipcRenderer.invoke('open-path', target),
