@@ -212,6 +212,7 @@
         <span class="dot" data-svc="azure" title="azure openai (optional)"></span>
       </div>
       <span class="state" id="state-label">idle</span>
+      <span class="profile" id="qn-badge" title="Spacebar = start/stop question" style="color:#E0B84A; border-color:rgba(224,184,74,0.3); display:none;">Q0</span>
       <span class="profile" id="profile-label" title="Cmd+Shift+P to cycle">profile: …</span>
       <span class="mode-chip" id="mode-chip" title="Auto-draft on question">auto</span>
       <span class="mode-chip" id="offline-chip" title="Offline mode — Ollama + local Whisper">online</span>
@@ -239,8 +240,12 @@
         </div>
       </div>
       <div class="ask-row">
-        <input id="ask-input" type="text" placeholder="Type a question and press Enter (bypasses STT for testing)…" />
+        <input id="ask-input" type="text" placeholder="Type a question and press Enter — or use spacebar with mic on" />
         <button id="btn-ask">Ask</button>
+      </div>
+      <div id="prev-answers" style="margin-top:8px; display:none;">
+        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Previous answers</div>
+        <div id="prev-list" style="display:flex; flex-direction:column; gap:6px;"></div>
       </div>
       <div class="log" id="log"></div>
     </main>

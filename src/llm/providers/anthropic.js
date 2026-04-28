@@ -38,7 +38,7 @@ export class AnthropicProvider extends LLMProvider {
     }
   }
 
-  async *generate({ system, messages, maxTokens = 700, temperature = 0.7, signal }) {
+  async *generate({ system, messages, maxTokens = 1500, temperature = 0.7, signal }) {
     const key = await this._getApiKey();
     if (!key) throw new Error('no_anthropic_key');
 

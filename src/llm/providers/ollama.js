@@ -34,7 +34,7 @@ export class OllamaProvider extends LLMProvider {
     }
   }
 
-  async *generate({ system, messages, maxTokens = 700, temperature = 0.7, signal }) {
+  async *generate({ system, messages, maxTokens = 1500, temperature = 0.7, signal }) {
     // Flatten Anthropic-style system blocks → single string.
     const systemText = Array.isArray(system)
       ? system.map(b => (typeof b === 'string' ? b : b.text || '')).join('\n\n')

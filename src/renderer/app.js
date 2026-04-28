@@ -15,6 +15,7 @@ import { AnthropicProvider } from '../llm/providers/anthropic.js';
 import { OllamaProvider } from '../llm/providers/ollama.js';
 import { AzureOpenAIProvider } from '../llm/providers/azure-openai.js';
 import { AutoDrafter } from '../intent/auto-draft.js';
+import { ManualGate } from '../intent/manual-gate.js';
 import { LiveNotes } from '../notes/notes.js';
 import { SessionManager } from '../session/session-manager.js';
 import { Metrics } from '../observability/metrics.js';
@@ -54,6 +55,7 @@ const orchestrator = new LLMOrchestrator({
 });
 
 const drafter = new AutoDrafter({ bus, orchestrator });
+const gate = new ManualGate({ bus, orchestrator });
 const session = new SessionManager({ bus, api, notes });
 
 const deepgram = new DeepgramTransport({ getApiKey: () => api.getEnv('DEEPGRAM_API_KEY') });
@@ -79,6 +81,9 @@ const el = {
   start: document.getElementById('btn-start'),
   stop: document.getElementById('btn-stop'),
   btnQuit: document.getElementById('btn-quit'),
+  qnBadge: document.getElementById('qn-badge'),
+  prevAnswers: document.getElementById('prev-answers'),
+  prevList: document.getElementById('prev-list'),
   transcript: document.getElementById('transcript'),
   intentStrip: document.getElementById('intent-strip'),
   answer: document.getElementById('answer'),
@@ -313,6 +318,66 @@ bus.on('llm:provider', ({ name, fallback }) => {
   if (fallback) log(`<span class="evt">llm</span> fallback → ${name}`);
 });
 
+// ── ManualGate: question numbering + listening visual ──
+const prevQA = []; // last 2 [{ q, a }]
+
+function renderQnBadge() {
+  const n = gate.questionNumber;
+  const s = gate.state;
+  if (n === 0 && s === ManualGate.STATES.IDLE) {
+    el.qnBadge.style.display = 'none';
+    return;
+  }
+  el.qnBadge.style.display = '';
+  let label = `Q${n}`;
+  let color = '#E0B84A'; // amber
+  if (s === ManualGate.STATES.LISTENING) { label = `🔴 Q${n} listening`; color = '#E57373'; }
+  else if (s === ManualGate.STATES.ANSWERING) { label = `Q${n} answering`; color = '#7AA2FF'; }
+  else { label = `Q${n} ✓`; color = '#6ECF7A'; }
+  el.qnBadge.textContent = label;
+  el.qnBadge.style.color = color;
+  el.qnBadge.style.borderColor = color + '55';
+}
+
+function renderPrev() {
+  if (prevQA.length === 0) {
+    el.prevAnswers.style.display = 'none';
+    el.prevList.innerHTML = '';
+    return;
+  }
+  el.prevAnswers.style.display = '';
+  el.prevList.innerHTML = prevQA.slice().reverse().map((p, idx) => {
+    const qn = p.qn ?? '';
+    return `<details style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:6px 10px;">
+      <summary style="cursor:pointer; outline:none; color:var(--accent); font-size:11px; font-family:ui-monospace,Menlo,monospace;">
+        Q${qn} · ${escapeHtml((p.q || '').slice(0, 90))}${(p.q || '').length > 90 ? '…' : ''}
+      </summary>
+      <div style="margin-top:6px; white-space:pre-wrap; font-size:12px; line-height:1.5; color:var(--fg);">${escapeHtml(p.a || '')}</div>
+    </details>`;
+  }).join('');
+}
+
+bus.on('gate:state', () => renderQnBadge());
+
+bus.on('gate:listening', ({ questionNumber }) => {
+  // New question: clear current answer pane, snapshot the just-finished one
+  // into history (if any) — avoid duplicating; only push when an answer landed.
+  log(`<span class="evt">Q${questionNumber}</span> listening — speak the question, press space again to fire`);
+  finalText = ''; interimText = '';
+  renderTranscript();
+  answerText = '';
+  lastRetrieved = [];
+  renderAnswer();
+  renderQnBadge();
+});
+
+bus.on('gate:fire', ({ question, questionNumber }) => {
+  log(`<span class="ok">Q${questionNumber}</span> fire → ${escapeHtml(question.slice(0, 80))}`);
+  renderQnBadge();
+});
+
+bus.on('gate:reset', () => { renderQnBadge(); });
+
 bus.on('intent:classified', (x) => renderIntent(x));
 bus.on('intent:draft-queued', ({ in_ms }) => log(`<span class="evt">intent</span> draft queued in ${in_ms}ms`));
 bus.on('intent:draft-cancelled', ({ reason }) => log(`intent cancel: ${reason}`));
@@ -322,8 +387,12 @@ bus.on('intent:mode', ({ enabled }) => {
   el.modeChip.textContent = enabled ? 'auto' : 'manual';
 });
 
+let _activeQuestion = '';
+let _activeQn = 0;
 bus.on('llm:start', ({ question }) => {
   answerText = ''; lastTtft = null; lastTotal = null; lastRetrieved = [];
+  _activeQuestion = question;
+  _activeQn = gate.questionNumber;
   renderTimings(); renderAnswer();
   log(`<span class="evt">ask</span> ${escapeHtml(question.substring(0, 80))}${question.length > 80 ? '…' : ''}`);
 });
@@ -340,10 +409,16 @@ bus.on('llm:ttft', ({ ms }) => {
 
 bus.on('llm:token', ({ delta }) => { answerText += delta; renderAnswer(); });
 
-bus.on('llm:done', ({ totalMs, usage }) => {
+bus.on('llm:done', ({ totalMs, usage, fullText }) => {
   lastTotal = totalMs; renderTimings();
   const u = usage ? ` · in ${usage.input_tokens || '?'} · cache ${usage.cache_read_input_tokens || 0}/${usage.cache_creation_input_tokens || 0} · out ${usage.output_tokens || '?'}` : '';
-  log(`<span class="ok">done</span> ${Math.round(totalMs)}ms${u}`);
+  log(`<span class="ok">Q${_activeQn} done</span> ${Math.round(totalMs)}ms${u}`);
+  // Push to previous-answers panel (last 2 visible).
+  if (fullText && _activeQuestion) {
+    prevQA.push({ qn: _activeQn, q: _activeQuestion, a: fullText });
+    while (prevQA.length > 2) prevQA.shift();
+    renderPrev();
+  }
 });
 
 bus.on('llm:aborted', ({ reason }) => log(`aborted: ${reason}`));
@@ -358,12 +433,12 @@ bus.on('session:resumed', ({ id, history, notes: n }) => {
 // ── button / input handlers ──
 on(el.start, 'click', () => pipeline.start().catch(err => log(`start threw: ${err.message}`, 'err')));
 
-// Stop: tear down audio + cancel any in-flight LLM + cancel pending auto-draft.
-// Previously only stopped audio, leaving the LLM streaming and the drafter armed.
+// Stop: tear down audio + cancel any in-flight LLM + reset the gate.
 on(el.stop, 'click', () => {
   try { pipeline.stop(); } catch (err) { log(`pipeline.stop threw: ${err.message}`, 'err'); }
   try { orchestrator.cancel(); } catch (err) { log(`orchestrator.cancel threw: ${err.message}`, 'err'); }
   try { drafter.clearBuffer(); drafter.setEnabled(false); } catch (err) { log(`drafter clear threw: ${err.message}`, 'err'); }
+  try { gate.reset(); } catch (err) { log(`gate.reset threw: ${err.message}`, 'err'); }
   log(`<span class="ok">stop</span> all`);
 });
 
@@ -711,13 +786,15 @@ async function probeAndRender() {
   setStatus(el.statusAzure, r.azure);
 }
 
-// Spacebar override (force-draft or cancel in-flight) — only outside inputs
+// Spacebar = ManualGate toggle (idle → listening → answering → idle).
+// First press: start capturing question. Second press: fire LLM. Third (if
+// still answering): cancel and reset for next question.
 document.addEventListener('keydown', (e) => {
   if (e.key !== ' ') return;
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   e.preventDefault();
-  drafter.forceDraftOrCancel();
+  gate.toggle();
 });
 
 // Open settings with Cmd+,

@@ -61,7 +61,7 @@ export class AzureOpenAIProvider extends LLMProvider {
     }
   }
 
-  async *generate({ system, messages, maxTokens = 700, temperature = 0.7, signal }) {
+  async *generate({ system, messages, maxTokens = 1500, temperature = 0.7, signal }) {
     const cfg = await this._getConfig();
     if (!cfg.AZURE_OPENAI_API_KEY) throw new Error('no_azure_key');
     if (!cfg.AZURE_OPENAI_RESOURCE) throw new Error('no_azure_resource');
