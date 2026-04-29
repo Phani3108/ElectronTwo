@@ -24,6 +24,12 @@ import { buildAnthropicPayload } from './prompt-builder.js';
 const RAG_K = 2;
 const RECENT_TURNS = 3;
 
+// Fast-path: when the top retrieval is a near-exact match to a prepared
+// Q&A, skip the LLM call entirely and emit the prepared answer directly.
+// Saves ~1-1.5s TTFT, saves tokens, prevents the LLM from "improving" the
+// rehearsed text. Disabled when retrieval is ambiguous (score < threshold).
+const FAST_PATH_THRESHOLD = 0.88;
+
 export class LLMOrchestrator {
   constructor({ bus, rag, profileManager, notes = null, providers = [] }) {
     if (!bus || !rag || !profileManager) throw new Error('orchestrator missing deps');
@@ -78,6 +84,34 @@ export class LLMOrchestrator {
 
     const retrievedIds = retrieved.map(r => ({ id: r.id, score: r.score }));
     this._bus.emit('llm:retrieved', { ids: retrievedIds });
+
+    // ── Fast-path: skip LLM entirely on near-exact prepared-answer hits ──
+    if (retrieved.length > 0 && retrieved[0].score >= FAST_PATH_THRESHOLD) {
+      const top = retrieved[0];
+      const aIdx = top.content.indexOf('A:');
+      if (aIdx >= 0) {
+        const fastAnswer = top.content.slice(aIdx + 2).trim();
+        if (fastAnswer.length > 30) {
+          this._bus.emit('llm:provider', { name: 'fast-path', fallback: false });
+          this._bus.emit('llm:ttft', { ms: performance.now() - t0 });
+          // Stream word-by-word for the same visual feel as a real LLM stream.
+          const tokens = fastAnswer.split(/(\s+)/);
+          for (const tok of tokens) {
+            if (gen !== this._current) return;
+            this._bus.emit('llm:token', { delta: tok });
+          }
+          this._recent.push({ question: qn, answer: fastAnswer });
+          if (this._recent.length > 10) this._recent = this._recent.slice(-10);
+          this._bus.emit('llm:done', {
+            fullText: fastAnswer,
+            totalMs: performance.now() - t0,
+            usage: { fast_path: true, score: top.score, story: top.id, input_tokens: 0, output_tokens: 0 },
+            retrievedIds,
+          });
+          return;
+        }
+      }
+    }
 
     // Try providers in order.
     let fullText = '';
