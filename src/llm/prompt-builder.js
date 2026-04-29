@@ -61,11 +61,14 @@ export function buildAnthropicPayload({ profile, retrievedStories, recentTurns, 
 
   const retrievedBlock = retrievedStories.length > 0
     ? [
-        `# Relevant prepared stories`,
-        `(If the top story's "Q:" matches the asked question, deliver its prepared "A:" essentially as written — 3 sharp paragraphs, ~150–250 words. Do NOT expand it into a longer essay. Do NOT add paragraphs the prepared answer doesn't have.)`,
+        `# Prepared answer to use`,
+        `Story 1 below is THE answer. Its "Q:" matches the asked question. Output its "A:" essentially as written — 3 paragraphs, ~150–250 words. Light wording edits to fit the exact question phrasing are fine. Do NOT swap to Story 2. Do NOT mix stories. Do NOT add new paragraphs.`,
         ...retrievedStories.map((s, i) => `## Story ${i + 1} — ${s.id} (score ${s.score.toFixed(2)})\n${s.content}`),
-      ].join('\n\n')
-    : '# Relevant prepared stories\n(none retrieved; answer from general experience in the same voice — 3 paragraphs, ~150–250 words, no invented numbers)';
+        retrievedStories.length > 1
+          ? `\n(Story 2 is reference only — do NOT use it unless Story 1's "Q:" clearly does not match the asked question.)`
+          : '',
+      ].filter(Boolean).join('\n\n')
+    : '# Prepared answer to use\n(no prepared answer matched; answer from general experience in the same voice — 3 paragraphs, ~150–250 words, no invented numbers)';
 
   const system = [
     { type: 'text', text: BASE_INSTRUCTIONS + '\n\n' + identityBlock, cache_control: { type: 'ephemeral' } },

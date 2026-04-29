@@ -21,7 +21,7 @@
 
 import { buildAnthropicPayload } from './prompt-builder.js';
 
-const RAG_K = 4;
+const RAG_K = 2;
 const RECENT_TURNS = 3;
 
 export class LLMOrchestrator {
