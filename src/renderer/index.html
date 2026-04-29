@@ -175,6 +175,11 @@
        inherits from body otherwise and swallows clicks on non-button UI. */
     .settings-backdrop, .settings-backdrop * { -webkit-app-region: no-drag; }
     .session-row, .rm, .session-row *, .dot { -webkit-app-region: no-drag; }
+    /* Previous-answers cards: details/summary need explicit no-drag or the
+       click is swallowed by the window drag region inherited from body. */
+    #prev-answers, #prev-answers * { -webkit-app-region: no-drag; }
+    #prev-answers details summary { cursor: pointer; outline: none; padding: 4px 0; }
+    #prev-answers details[open] summary { color: var(--ok) !important; }
     .settings-modal {
       width: 90%; max-width: 460px;
       background: rgba(28,28,34,0.98); backdrop-filter: blur(24px);
